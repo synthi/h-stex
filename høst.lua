@@ -1,0 +1,706 @@
+--      .                   
+--                         
+--          .          .     
+--   .
+--                .         
+--    .                     
+--                         .
+-- .
+-- v1.1 / imminent gloom
+
+-- setup
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+engine.name = "Harvest"
+    Harvest = include("lib/Harvest_engine")
+        tab = require("tabutil")
+
+local save_on_exit = true
+
+local g = grid.connect()
+local a = arc.connect()
+
+local          s = screen
+local        fps = 30
+local  arc_dirty = true
+local     splash = true
+local      frame = 1
+local  intensity = 8
+local  particles = {}
+local    density = 96
+
+local      focus = 1
+local prev_focus = 1
+
+local    playing = {}
+local      voice = 1
+local  transpose = 0
+local       note
+local   velocity = 100
+local   duration = 600
+local         ch = 1
+local       hold = false
+local        oct = 2
+local      trail = 8
+
+-- clock events
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+local function redraw_event()
+   while true do
+      clock.sleep(1/fps)
+      if frame > fps then
+         frame = 1
+      else
+         frame = frame + 1
+      end
+      arc_dirty = true
+      redraw()
+      redraw_grid()
+   end
+end
+
+local function redraw_arc_event()
+   while true do
+      clock.sleep(1/90)
+      if arc_dirty then
+         redraw_arc()
+         arc_dirty = false
+      end
+   end
+end
+
+local function splash_event()
+   if splash then
+      splash_level = 15
+      while splash_level > 0 do
+         clock.sleep(0.05)
+         splash_level = splash_level - 1
+      end
+      splash = false
+   end
+end
+
+local function chaos_event()
+   while true do
+      
+   end
+end
+
+-- functions
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+local function seed(t, n)
+   for n = 1, n do
+      if n == 1 then
+         t[n] = {x = math.random(32, 96), y = math.random(16, 48), on = true, level = 15, noise = 0}
+      else
+         t[n] = {x = math.random(1, 128), y = math.random(1, 64), on = true, level = 15, noise = 0}
+      end
+   end
+end
+
+local function stop_keys()
+   for n = 1, #playing do
+      engine.harvest_note_off(playing[n].note + playing[n].transpose)
+   end
+   playing = {}
+end
+
+local function stop_held()
+   for n = #playing, 1, -1 do
+      if playing[n].held then
+         engine.harvest_note_off(playing[n].note + playing[n].transpose)
+         table.remove(playing, n)
+      end
+   end
+end
+
+local function xy_to_note(x, y)
+   note = 12
+   note = note + x
+   note = note + 5 * (8 - y)
+   return note
+end
+
+local function play_note(x, y, z, note)
+   note = note or xy_to_note(x, y)
+   transpose = 12 * oct
+   if z == 1 then 
+      if #playing >= 4 then
+         engine.harvest_note_off(playing[1].note + playing[1].transpose)
+         table.remove(playing, 1)
+      end
+      table.insert(playing, {note = note, transpose = transpose, x = x, y = y, held = false})
+      engine.harvest_note_on(note + transpose, velocity, duration)
+   else
+      for i, v in pairs(playing) do
+         if v.x == x and v.y == y then
+            engine.harvest_note_off(playing[i].note + playing[i].transpose)
+            table.remove(playing, i)
+            break
+         end
+      end
+   end
+end
+
+local function hold_note(x, y, z, note)
+   local voice = nil
+   if z == 1 then
+      note = note or xy_to_note(x, y)
+      transpose = 12 * oct
+      for i, v in pairs(playing) do
+         if v.x == x and v.y == y then
+            engine.harvest_note_off(playing[i].note + playing[i].transpose)
+            table.remove(playing, i)
+            voice = i
+            break
+         end
+      end
+      if voice == nil then
+         if #playing >= 4 then
+            engine.harvest_note_off(playing[1].note + playing[1].transpose)
+            table.remove(playing, 1)
+         end
+         table.insert(playing, {note = note, transpose = transpose, x = x, y = y, held = false})
+         engine.harvest_note_on(note + transpose, velocity, duration)
+      end
+   else
+      if voice == nil then
+         for n = 1, #playing do
+            if playing[n].held == false then
+               playing[n].held = true
+            end
+         end
+      end
+   end
+end
+
+local function arc_bar(enc, val, level)
+   local range = util.clamp(math.floor(val * 33), 0, 32.999)
+   for n = 1, range do
+      if n < range then 
+         a:led(enc, 33 + n, level)
+         a:led(enc, 33 - n, level)
+      else
+         if n > 33 then
+            a:led(enc, 1, math.floor(level * (val * 33 - range)))
+         else
+            a:led(enc, 33 + n, math.floor(level * (val * 33 - range)))
+            a:led(enc, 33 - n, math.floor(level * (val * 33 - range)))
+         end
+      end
+   end
+end
+
+-- init
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+function init()
+   seed(particles, density)
+
+   clk_redraw = clock.run(redraw_event)
+   clk_redraw_arc = clock.run(redraw_arc_event)
+   clk_splash = clock.run(splash_event)
+
+   params:add{
+      type = "group",
+      id   = "harvest",
+      name = "HØST",
+      n    = 29
+   }
+
+   params:add{
+      type        = "option",
+      id          = "focus",
+      name        = "Fokus",
+      options     = {"Jord", "Løv", "Lys"},
+      default     = 1, 
+      action      = function(x)
+         prev_focus = focus
+         focus = x
+         if focus == 1 then
+            seed(particles, density)
+         elseif focus == 2 then
+            seed(particles, density)
+         elseif focus == 3 then
+            seed(particles, density)
+         end
+      end
+   }
+
+   Harvest.init(false)
+
+   params:add{
+      type        = "option",
+      id          = "poly_hold",
+      name        = "Hold?",
+      options     = {"Nei", "Ja"},
+      default     = 1,
+      action      = function(x)
+         if x == 1 then
+            hold = false
+         else
+            hold = true
+         end
+         Harvest.poly_hold= x - 1
+      end
+   }
+
+   if save_on_exit then params:read(norns.state.data .. "state.pset") end
+
+   params:bang()
+
+   params:set("focus", 1)
+end
+
+-- norns: keys
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+function key(n, z)
+   if n == 1 and z == 1 then k1_held = true  end
+   if n == 1 and z == 0 then k1_held = false end
+   if n == 2 and z == 1 then k2_held = true  end
+   if n == 2 and z == 0 then k2_held = false end
+   if n == 3 and z == 1 then k3_held = true  end
+   if n == 3 and z == 0 then k3_held = false end
+   if n == 2 and z == 1 and not k3_held then params:set("focus", 1) end
+   if n == 3 and z == 1 and not k2_held then params:set("focus", 2) end
+   if k2_held and k3_held then params:set("focus", 3) end
+end
+
+-- norns: encoders
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+function enc(n, d)
+   if n == 1 then params:delta("focus"     , d) end
+   if n == 2 then params:delta("fx_gain"   , d) end
+   if n == 3 then params:delta("poly_scale", d) end
+end
+
+-- grid: keys
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+g.key = function(x, y, z)
+   if x == 1 and y == 1 then
+      if z == 1 then
+         if params:get("poly_hold") == 2 then
+            params:set("poly_hold", 1) 
+            stop_held()
+         else
+            params:set("poly_hold", 2) 
+            for n = 1, #playing do
+               playing[n].held = true
+            end
+         end
+      end
+   elseif x == 1 and y == 2 then
+      if z == 1 then
+         if params:get("poly_loop") == 2 then
+            params:set("poly_loop", 1)
+         else
+            params:set("poly_loop", 2)
+         end
+      end
+   elseif x == 1 and y == 3 then
+      if z == 1 then oct = 3 end
+   elseif x == 1 and y == 4 then
+      if z == 1 then oct = 2 end
+   elseif x == 1 and y == 5 then
+      if z == 1 then oct = 1 end
+   elseif x == 1 and y == 6 then
+      if z == 1 then params:set("focus", 1) end
+   elseif x == 1 and y == 7 then
+      if z == 1 then params:set("focus", 2) end
+   elseif x == 1 and y == 8 then
+      if z == 1 then params:set("focus", 3) end
+   else
+      if not hold then play_note(x, y, z) else hold_note(x, y, z) end
+   end
+end
+
+-- arc: key
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+a.key = function(n, z)
+   if n == 1 then
+      if z == 1 then
+         if focus == 3 then -- to previous
+            focus = prev_focus
+         else               -- to Lys
+            prev_focus = focus
+            focus = 3
+         end
+      end
+      if z == 0 then
+         if focus == 3 then
+            focus = prev_focus
+         else
+            focus = 3
+         end
+      end
+   end
+end
+
+-- arc: encoders
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+a.delta = function(n, d)
+   arc_dirty = true
+
+   if focus == 1 then -- Jord
+      if n == 1 then params:delta("drone_timbre", d * 0.10) end
+      if n == 2 then params:delta("drone_noise" , d * 0.10) end
+      if n == 3 then params:delta("drone_bias"  , d * 0.15) end
+      if n == 4 then params:delta("drone_freq"  , d * 0.05) end
+   end
+
+   if focus == 2 then -- Løv
+      if n == 1 then params:delta("poly_timbre", d * 0.10) end
+      if n == 2 then params:delta("poly_noise" , d * 0.10) end
+      if n == 3 then params:delta("poly_bias"  , d * 0.15) end
+      if n == 4 then params:delta("poly_shape" , d * 0.10) end
+   end
+
+   if focus == 3 then -- Lys
+      if n == 1 then params:delta("fx_peak_1", d * 0.10) end
+      if n == 2 then params:delta("fx_peak_2", d * 0.10) end
+      if n == 3 then params:delta("fx_body"  , d * 0.10) end
+      if n == 4 then params:delta("fx_time"  , d * 0.05) end
+   end
+end
+
+-- norns: drawing
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+function redraw()
+   s.clear()
+   
+   if splash then
+      s.aa(0)
+      s.level(splash_level)
+      s.move(63, 55)
+      s.font_face(12)
+      s.font_size(60)
+	    s.text_center("Høst")
+   end
+
+   if focus == 1 then -- Jord      
+      for n = 1, util.clamp(math.floor(#particles * (Harvest.drone_bias)), 1, #particles) do
+         if particles[n].on then
+
+            -- noise
+            if frame % 4 == 1 then
+               if math.random() < Harvest.drone_noise * 0.1 then
+                  particles[n].noise = 0.49
+               else
+                  particles[n].noise = 1
+               end
+            end
+
+            -- detrius
+            particles[n].level = 1
+
+            if Harvest.drone_timbre < 0.5 then
+               particles[n].level = 1 + math.floor(13 * (Harvest.drone_timbre * -2 + 1))
+            else
+               if particles[n].x % 32 > 16 then
+                  particles[n].level = 1 + math.floor(13 * (Harvest.drone_timbre * 2 - 1))
+               end
+            end
+               
+            s.level(1 + math.floor(particles[n].level * particles[n].noise))
+            s.pixel(particles[n].x, particles[n].y)
+            s.fill()   
+         end
+      end
+   end
+   
+   if focus == 2 then -- Løv
+      local offset = 64 * Harvest.poly_timbre
+
+      -- light
+      s.level(7)
+      s.rect(0, 0, 128, 64)
+      s.fill()
+
+      -- noise
+      if frame % 4 == 1 then
+         for n = 1, math.max(math.floor(#particles * (Harvest.poly_bias)), 1) do
+            if math.random() < Harvest.poly_noise * 0.1 then
+               particles[n].level = 10
+            else
+               particles[n].level = 15
+            end
+         end
+      end
+      
+      -- shadow
+      for n = 1, math.max(math.floor(#particles * Harvest.poly_bias), 1) do
+         x = particles[n].x
+         y = particles[n].y
+         for n = 1, 2 do
+            if particles[n].on == true then
+               s.pixel(x - n, y + n)
+            end
+         end
+         s.level(3)
+         s.fill()
+      end
+
+      -- dark
+      if Harvest.poly_timbre < 0.5 then
+         s.level(0)
+         s.move(64 + offset,  0)
+         s.line( 0 + offset, 64)
+         s.line( 0, 64)
+         s.line( 0,  0)
+         s.fill()
+      else
+         s.level(0)
+         s.move(88,  0)
+         s.line(24, 64)
+         s.line( 0, 64)
+         s.line( 0,  0)
+         s.fill()
+         s.move(56 + offset,  0)
+         s.line(-8 + offset, 64)
+         s.line( 0 + offset * 2 - 32, 64)
+         s.line(64 + offset * 2 - 32,  0)
+         s.fill()
+      end
+      
+      -- detrius
+      for n = 1, math.max(math.floor(#particles * Harvest.poly_bias), 1) do
+         x = particles[n].x
+         y = particles[n].y
+         if particles[n].on == true then
+            s.pixel(x, y)
+            s.level(particles[n].level)
+            s.fill()
+         end
+      end
+   end
+
+   if focus == 3 then -- Lys
+      local offset_1 = 64 * Harvest.fx_peak_1
+      local offset_2 = 64 * Harvest.fx_peak_2
+
+      -- light
+      s.level(7)
+      s.rect(0, 0, 128, 64)
+      s.fill()
+
+      -- shadow
+      s.level(3)
+      for n = 1, math.max(math.floor(#particles * (1 - Harvest.fx_time)), 1) do
+         x = particles[n].x
+         y = particles[n].y
+         for n = 1, 2 + math.floor(62 * 2 * math.abs(((Harvest.fx_body - 0.5) % 1) - 0.5)) do
+            if particles[n].on == true then
+               s.pixel(x - n, y + n)
+            end
+         end
+      end
+      s.fill()
+
+      -- dark
+      s.level(1)
+      s.blend_mode(5)
+     
+      local offset_1 = 128 * Harvest.fx_peak_1
+      s.move(( 32 - 32) + offset_1,  0)
+      s.line((-32 - 32) + offset_1, 64)
+      s.line((-32 + 32) + offset_1, 64)
+      s.line(( 32 + 32) + offset_1,  0)
+      s.fill()
+   
+      local offset_2 = 128 * Harvest.fx_peak_2
+      s.move(( 32 - 32) + offset_2,  0)
+      s.line((-32 - 32) + offset_2, 64)
+      s.line((-32 + 32) + offset_2, 64)
+      s.line(( 32 + 32) + offset_2,  0)
+      s.fill()
+    
+      s.blend_mode(0)
+
+      -- detrius
+      s.level(15)
+      for n = 1, math.max(math.floor(#particles * (1 - Harvest.fx_time)), 1) do
+         x = particles[n].x
+         y = particles[n].y
+         if particles[n].on == true then
+            s.pixel(x, y)
+         end
+      end
+      s.fill()
+   end
+
+   s.update()
+   s.ping()
+end
+
+-- grid: drawing
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+function redraw_grid()
+   local background = 3
+   g:all(0)
+
+   -- background
+   for n = 6, 16 do g:led(n, 1, background) end
+   for n = 5, 16 do g:led(n, 2, background) end
+   for n = 4, 16 do g:led(n, 3, background) end
+   for n = 3, 16 do g:led(n, 4, background) end
+   for n = 2, 16 do g:led(n, 5, background) end
+   for n = 1, 16 do g:led(n, 6, background) end
+   for n = 1, 16 do g:led(n, 7, background) end
+   for n = 1, 16 do g:led(n, 8, background) end
+   
+   -- coll 1 off
+   g:led(1, 1, background)
+   g:led(1, 2, background)
+   for n = 6, 8 do 
+      g:led(1, n, background)
+   end
+
+   -- cast shadows and light up held keys
+   for n = 1, #playing do
+      for m = 1, math.min(trail, playing[n].x - 1, g.rows - playing[n].y) do
+         g:led(playing[n].x - m, playing[n].y + m, 0)
+      end
+   end
+   for n = 1, #playing do
+      g:led(playing[n].x, playing[n].y, 10)
+   end
+
+   -- col 1 on
+   if Harvest.poly_hold == 1 then g:led(1, 1, 10) end 
+   if Harvest.poly_loop == 1 then g:led(1, 2, 10) end 
+   g:led(1, 6 - oct, 5)
+   g:led(1, 5 + focus, 5)
+
+   g:refresh()
+end
+
+-- arc: drawing
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+function redraw_arc()
+   a:all(0)
+   local offset = 5.625 * -31 -- 1 led = 5.625 degrees
+   local  level = 5
+   local s1
+   local s2
+   
+   if focus == 1 then -- Jord
+      -- e1
+      local val = Harvest.drone_timbre * 2 - 1
+      if val < 0 then
+         s1 = math.rad(val * 5.625 * 31)
+         s2 = math.rad(0)
+      else
+         s1 = math.rad(0)
+         s2 = math.rad(val * 5.625 * 32)
+      end
+      a:segment(1, s1, s2, level)
+      a:led(1,  1, 1)
+      a:led(1, 33, 1)
+      
+      -- e2
+      s1 = math.rad(offset)
+      s2 = math.rad(Harvest.drone_noise * 5.625 * 63 + offset)
+      a:segment(2, s1, s2, level)
+      a:led(2,  1, 1)
+      a:led(2, 33, 1)
+      
+      -- e3
+      arc_bar(3, Harvest.drone_bias, level)
+      --a:led(3,  1, 1)
+      a:led(3, 33, 1)
+
+      -- e4
+      s1 = math.rad(offset)
+      s2 = math.rad(Harvest.drone_freq * 5.625 * 63 + offset)
+      a:segment(4, s1, s2, level)
+      a:led(4,  1, 1)
+      a:led(4, 33, 1)
+   end
+   
+   if focus == 2 then -- Løv
+      -- e1
+      local val = Harvest.poly_timbre * 2 - 1
+      if val < 0 then
+         s1 = math.rad(val * 5.625 * 31)
+         s2 = math.rad(0)
+      else
+         s1 = math.rad(0)
+         s2 = math.rad(val * 5.625 * 32)
+      end
+      a:segment(1, s1, s2, level)
+      a:led(1,  1, 1)
+      a:led(1, 33, 1)
+      
+      -- e2
+      s1 = math.rad(offset)
+      s2 = math.rad(Harvest.poly_noise * 5.625 * 63 + offset)
+      a:segment(2, s1, s2, level)
+      a:led(2,  1, 1)
+      a:led(2, 33, 1)
+      
+      -- e3
+      arc_bar(3, Harvest.poly_bias, level)
+      a:led(3, 33, 1)
+      
+      -- e4
+      s1 = math.rad(offset)
+      s2 = math.rad(Harvest.poly_shape * 5.625 * 63 + offset)
+      a:segment(4, s1, s2, level)
+      a:led(4, 33, 1)
+      a:led(4, 12, 1)
+      a:led(4, 54, 1)
+   end
+
+   if focus == 3 then -- Lys
+      local width = 8
+      local p
+
+      -- e1
+      s1 = math.rad(Harvest.fx_peak_1 * 5.625 * (63 - width) + offset)
+      s2 = math.rad(Harvest.fx_peak_1 * 5.625 * (63 - width) + 5.625 * width + offset)
+      a:segment(1, s1, s2, 6)
+      a:led(1, 33, 1)
+      
+      -- e2
+      s1 = math.rad(Harvest.fx_peak_2 * 5.625 * (63 - width) + offset)
+      s2 = math.rad(Harvest.fx_peak_2 * 5.625 * (63 - width) + 5.625 * width + offset)
+      a:segment(2, s1, s2, 6)
+      a:led(2, 33, 1)
+
+      -- e3
+      s1 = math.rad(Harvest.fx_body * 5.625 * 64 - 5.625 * 8 + offset)
+      s2 = math.rad(Harvest.fx_body * 5.625 * 64 + 5.625 * 7 + offset)
+      a:segment(3, s1, s2, level)
+      local shift = 8
+      a:led(3,  1 + shift, 1)
+      a:led(3, 17 + shift, 1)
+      a:led(3, 33 + shift, 1)
+      a:led(3, 49 + shift, 1)
+
+      -- e4
+      s1 = math.rad(offset)
+      s2 = math.rad(Harvest.fx_time * 5.625 * 63 + offset)
+      a:segment(4, s1, s2, level)
+      a:led(4, 33, 1)
+   end
+
+   a:refresh()
+end
+
+-- cleanup
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+function cleanup()
+   stop_keys()
+   if save_on_exit then params:write(norns.state.data .. "state.pset") end
+end
