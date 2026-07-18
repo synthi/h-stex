@@ -66,10 +66,10 @@ El grid funciona como un teclado musical:
 
 | Elemento | Nivel LED | Descripción |
 |----------|-----------|-------------|
-| Fondo de teclas activas | 3 | Notas que pertenecen a la escala |
+| Fondo de teclas activas | 1 | Patrón diagonal original (escalonado) |
 | Tónica de la escala | 5 | Nota raíz de la escala (más brillante) |
-| Nota pulsada | 10 | Nota que está sonando actualmente |
-| Sombra proyectada | 1 | Sombra sutil desde notas activas |
+| Nota pulsada | 10 | Nota que está sonando actualmente (sobrescribe a la tónica) |
+| Sombra proyectada | 0 | Apagada (pero aún marca la dirección de las notas activas) |
 | Columna 1 — indicadores | 5/10 | Estado de hold, loop, octava, fokus |
 
 ---
@@ -86,63 +86,90 @@ El grid funciona como un teclado musical:
 
 ### Encoders físicos (E1, E2, E3)
 
-| Encoder | Parámetro |
-|---------|-----------|
-| E1 | Fokus (cambia entre Jord/Løv/Lys) |
-| E2 | Ganancia de distorsión (FX) |
-| E3 | Escala de envolvente (poly) |
+| Encoder | Parámetro | Traducción | Descripción |
+|---------|-----------|------------|-------------|
+| E1 | `drone_freq` | Frecuencia (drone) | Ajuste fino de la frecuencia base del drone |
+| E2 | `fx_gain` | Fuerza (distorsión) | Ganancia de distorsión (tanh) |
+| E3 | `poly_shape` | Kontur (contorno) | Forma de envolvente: 0=percusivo, 0.5=pad, 1=swell |
 
 ---
 
 ## 5. Parámetros del Menú (PARAMS)
 
+### Traducciones de Parámetros (Sueco → Español)
+
+| Sueco | Pronunciación | Español | Descripción |
+|-------|--------------|---------|-------------|
+| Volum | vó-lum | Volumen | Nivel de audio |
+| Klangfarge | klang-far-ge | Timbre | Morfología de onda (saw→sine→square) |
+| Støy | stoy | Ruido | Cantidad de ruido inyectado |
+| Terskel | tersh-el | Umbral/Threshold | Lógica de comparación analógica |
+| Frekvens | frek-vens | Frecuencia | Frecuencia del oscilador |
+| Kontur | kon-tur | Contorno | Forma de la envolvente |
+| Første | fersh-te | Primero | 1er filtro bandpass |
+| Andre | an-dre | Segundo | 2º filtro bandpass |
+| Kropp | krop | Cuerpo | Morph entre dry, filtros y delay |
+| Tid | tid | Tiempo | Tiempo de delay |
+| Resonans | re-so-nans | Resonancia | Resonancia de filtros |
+| Ekko | ek-o | Eco | Feedback del delay |
+| Styrke | styr-ke | Fuerza | Ganancia de distorsión |
+| Vekst | vekst | Crecimiento | Tiempo máximo de ataque |
+| Forfall | for-fal | Decaimiento | Tiempo máximo de release |
+| Skala | ska-la | Escala | Escala global de envolvente |
+| Repeter? | re-pe-ter | ¿Repetir? | Loop de envolvente |
+| Nei/Ja | nei/ya | No/Sí | Off/On |
+| Jord | yord | Tierra | Modo drone |
+| Løv | lov | Hoja | Modo poly-synth |
+| Lys | lis | Luz | Modo FX |
+| Fokus | fo-kus | Foco/Mode | Selector de modo |
+
 ### Grupo HØST
 
-#### JORD (Drone)
+#### JORD (Tierra — Drone)
 
-| Parámetro | ID | Rango | Default | Descripción |
-|-----------|-----|-------|---------|-------------|
-| Volum | `drone_amp` | 0–1 | 0.8 | Volumen del drone |
-| Klangfarge | `drone_timbre` | 0–1 | 0.5 | Morphing saw→sine→square |
-| Støy | `drone_noise` | 0–1 | 0.0 | Inyección de ruido (white→pink) |
-| Terskel | `drone_bias` | 0–1 | 0.0 | Threshold de lógica analógica |
-| Frekvens | `drone_freq` | 0.2–2000 Hz | 117 Hz | Frecuencia base del drone |
+| Parámetro (sueco) | Traducción | ID | Rango | Default | Descripción |
+|-------------------|------------|-----|-------|---------|-------------|
+| Volum | Volumen | `drone_amp` | 0–1 | 0.8 | Volumen del drone |
+| Klangfarge | Timbre | `drone_timbre` | 0–1 | 0.5 | Morphing saw→sine→square |
+| Støy | Ruido | `drone_noise` | 0–1 | 0.0 | Inyección de ruido (white→pink) |
+| Terskel | Umbral | `drone_bias` | 0–1 | 0.0 | Threshold de lógica analógica |
+| Frekvens | Frecuencia | `drone_freq` | 0.2–2000 Hz | 117 Hz | Frecuencia base del drone |
 
-#### LØV (Poly)
+#### LØV (Hoja — Poly)
 
-| Parámetro | ID | Rango | Default | Descripción |
-|-----------|-----|-------|---------|-------------|
-| Volum | `poly_amp` | 0–1 | 0.8 | Volumen del poly |
-| Klangfarge | `poly_timbre` | 0–1 | 0.2 | Morphing saw→sine→square |
-| Støy | `poly_noise` | 0–1 | 0.3 | Inyección de ruido |
-| Terskel | `poly_bias` | 0–1 | 0.6 | Threshold de lógica analógica |
-| Kontur | `poly_shape` | 0–1 | 0.1 | Control de forma de envolvente |
+| Parámetro (sueco) | Traducción | ID | Rango | Default | Descripción |
+|-------------------|------------|-----|-------|---------|-------------|
+| Volum | Volumen | `poly_amp` | 0–1 | 0.8 | Volumen del poly |
+| Klangfarge | Timbre | `poly_timbre` | 0–1 | 0.2 | Morphing saw→sine→square |
+| Støy | Ruido | `poly_noise` | 0–1 | 0.3 | Inyección de ruido |
+| Terskel | Umbral | `poly_bias` | 0–1 | 0.6 | Threshold de lógica analógica |
+| Kontur | Contorno | `poly_shape` | 0–1 | 0.1 | Forma de envolvente (0=perc, 0.5=pad, 1=swell) |
 
-#### LYS (FX)
+#### LYS (Luz — FX)
 
-| Parámetro | ID | Rango | Default | Descripción |
-|-----------|-----|-------|---------|-------------|
-| Første | `fx_peak_1` | 20–20000 Hz | 115 Hz | Frecuencia del primer filtro bandpass |
-| Andre | `fx_peak_2` | 20–20000 Hz | 218 Hz | Frecuencia del segundo filtro bandpass |
-| Kropp | `fx_body` | 0–1 | 0.0 | Morph: dry→filter→filter+delay→dry+delay→dry |
-| Tid | `fx_time` | 0.01–2 s | 1 s | Tiempo del delay |
-| Resonans | `fx_res` | 0–100% | 50% | Resonancia de los filtros |
-| Ekko | `fx_fb` | 0–100% | 100% | Feedback del delay |
+| Parámetro (sueco) | Traducción | ID | Rango | Default | Descripción |
+|-------------------|------------|-----|-------|---------|-------------|
+| Første | Primero | `fx_peak_1` | 20–20000 Hz | 115 Hz | Frecuencia del 1er filtro bandpass |
+| Andre | Segundo | `fx_peak_2` | 20–20000 Hz | 218 Hz | Frecuencia del 2º filtro bandpass |
+| Kropp | Cuerpo | `fx_body` | 0–1 | 0.0 | Morph: dry→filter→filter+delay→dry+delay→dry |
+| Tid | Tiempo | `fx_time` | 0.01–2 s | 1 s | Tiempo del delay |
+| Resonans | Resonancia | `fx_res` | 0–100% | 50% | Resonancia de los filtros |
+| Ekko | Eco | `fx_fb` | 0–100% | 100% | Feedback del delay |
 
 #### FORVITRING (Distorsión)
 
-| Parámetro | ID | Rango | Default | Descripción |
-|-----------|-----|-------|---------|-------------|
-| Styrke | `fx_gain` | 0.5–16 | 0.5 | Ganancia de distorsión (tanh) |
+| Parámetro (sueco) | Traducción | ID | Rango | Default | Descripción |
+|-------------------|------------|-----|-------|---------|-------------|
+| Styrke | Fuerza | `fx_gain` | 0.5–16 | 0.5 | Ganancia de distorsión (tanh) |
 
 #### NOTER (Notas)
 
-| Parámetro | ID | Rango | Default | Descripción |
-|-----------|-----|-------|---------|-------------|
-| Vekst | `poly_max_attack` | 0.001–20 s | 1 s | Tiempo máximo de ataque |
-| Forfall | `poly_max_release` | 0.001–20 s | 3 s | Tiempo máximo de release |
-| Skala | `poly_scale` | 1–100% | 100% | Escala global de la envolvente |
-| Repeter? | `poly_loop` | Nei/Ja | Nei | Loop de envolvente (ararar) |
+| Parámetro (sueco) | Traducción | ID | Rango | Default | Descripción |
+|-------------------|------------|-----|-------|---------|-------------|
+| Vekst | Crecimiento | `poly_max_attack` | 0.001–20 s | 1 s | Tiempo máximo de ataque |
+| Forfall | Decaimiento | `poly_max_release` | 0.001–20 s | 3 s | Tiempo máximo de release |
+| Skala | Escala | `poly_scale` | 1–100% | 100% | Escala global de la envolvente |
+| Repeter? | ¿Repetir? | `poly_loop` | Nei/Ja | Nei | Loop de envolvente (ararar) |
 
 #### Scale (Escala Musical)
 

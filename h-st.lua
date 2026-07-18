@@ -249,7 +249,7 @@ function init()
       type = "group",
       id   = "harvest",
       name = "HØST",
-      n    = 29
+      n    = 30
    }
 
    params:add{
@@ -331,9 +331,9 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 function enc(n, d)
-   if n == 1 then params:delta("focus"     , d) end
+   if n == 1 then params:delta("drone_freq", d * 0.05) end
    if n == 2 then params:delta("fx_gain"   , d) end
-   if n == 3 then params:delta("poly_scale", d) end
+   if n == 3 then params:delta("poly_shape", d) end
 end
 
 -- grid: keys
@@ -602,24 +602,30 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 function redraw_grid()
-   local background = 3
+   local background = 1
    g:all(0)
 
-   -- background: only show keys that belong to the current scale
-   local scale = scales[current_scale]
-   local steps = #scale
-   for x = 2, 16 do
-      for y = 1, 8 do
-         if current_scale == "Chromatic" then
-            g:led(x, y, background)
-         else
-            -- only light up columns that are within the scale pattern
-            local col_in_scale = ((x - 1) % steps) + 1
-            if col_in_scale <= steps then
-               g:led(x, y, background)
-            end
-         end
-      end
+   -- background (diagonal pattern = original design)
+   if current_scale == "Chromatic" then
+      for n = 6, 16 do g:led(n, 1, background) end
+      for n = 5, 16 do g:led(n, 2, background) end
+      for n = 4, 16 do g:led(n, 3, background) end
+      for n = 3, 16 do g:led(n, 4, background) end
+      for n = 2, 16 do g:led(n, 5, background) end
+      for n = 1, 16 do g:led(n, 6, background) end
+      for n = 1, 16 do g:led(n, 7, background) end
+      for n = 1, 16 do g:led(n, 8, background) end
+   else
+      -- same diagonal but only light columns within scale pattern
+      local steps = #scales[current_scale]
+      for n = 6, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 1, background) end end
+      for n = 5, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 2, background) end end
+      for n = 4, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 3, background) end end
+      for n = 3, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 4, background) end end
+      for n = 2, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 5, background) end end
+      for n = 1, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 6, background) end end
+      for n = 1, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 7, background) end end
+      for n = 1, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 8, background) end end
    end
    
    -- coll 1 off
@@ -629,17 +635,7 @@ function redraw_grid()
       g:led(1, n, background)
    end
 
-   -- cast shadows (level 1 for subtlety) and light up held keys
-   for n = 1, #playing do
-      for m = 1, math.min(trail, playing[n].x - 1, g.rows - playing[n].y) do
-         g:led(playing[n].x - m, playing[n].y + m, 1)
-      end
-   end
-   for n = 1, #playing do
-      g:led(playing[n].x, playing[n].y, 10)
-   end
-
-   -- tonic notes at level 5
+   -- tonic notes at level 5 (BEFORE played notes, so played notes override tonic)
    if current_scale ~= "Chromatic" then
       for x = 2, 16 do
          for y = 1, 8 do
@@ -649,6 +645,16 @@ function redraw_grid()
             end
          end
       end
+   end
+
+   -- cast shadows (off/level 0) and light up held keys
+   for n = 1, #playing do
+      for m = 1, math.min(trail, playing[n].x - 1, g.rows - playing[n].y) do
+         g:led(playing[n].x - m, playing[n].y + m, 0)
+      end
+   end
+   for n = 1, #playing do
+      g:led(playing[n].x, playing[n].y, 10)
    end
 
    -- col 1 on
