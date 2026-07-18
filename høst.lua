@@ -1,3 +1,6 @@
+--
+--  A remake by Joaue Arias
+--  v1.2 - Joaue Arias
 --      .                   
 --                         
 --          .          .     
@@ -6,7 +9,7 @@
 --    .                     
 --                         .
 -- .
--- v1.1 / imminent gloom
+-- original v1.1 / imminent gloom
 
 -- setup
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
@@ -42,6 +45,32 @@ local         ch = 1
 local       hold = false
 local        oct = 2
 local      trail = 8
+
+local scales = {
+   ["Chromatic"]        = {0,1,2,3,4,5,6,7,8,9,10,11},
+   ["Major"]            = {0,2,4,5,7,9,11},
+   ["Natural Minor"]    = {0,2,3,5,7,8,10},
+   ["Harmonic Minor"]   = {0,2,3,5,7,8,11},
+   ["Dorian"]           = {0,2,3,5,7,9,10},
+   ["Phrygian"]         = {0,1,3,5,7,8,10},
+   ["Lydian"]           = {0,2,4,6,7,9,11},
+   ["Mixolydian"]       = {0,2,4,5,7,9,10},
+   ["Major Pentatonic"] = {0,2,4,7,9},
+   ["Minor Pentatonic"] = {0,3,5,7,10},
+   ["In Sen"]           = {0,1,5,7,10},
+   ["Hirajoshi"]        = {0,2,3,7,8},
+   ["Iwato"]            = {0,1,5,6,10},
+   ["Kumoi"]            = {0,2,3,7,9},
+   ["Yo"]               = {0,2,5,7,9},
+   ["Hijaz"]            = {0,1,4,5,7,8,11},
+   ["Todi"]             = {0,1,3,6,7,8,11},
+   ["Marwa"]            = {0,1,4,6,7,9,11},
+   ["Purvi"]            = {0,1,4,6,7,8,11},
+   ["Saba"]             = {0,1,3,5,6,8,11},
+   ["Nawa Athar"]       = {0,1,4,5,7,9,10},
+}
+local current_scale = "Chromatic"
+local scale_root = 0
 
 -- clock events
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
@@ -117,9 +146,22 @@ local function stop_held()
 end
 
 local function xy_to_note(x, y)
-   note = 12
-   note = note + x
-   note = note + 5 * (8 - y)
+   local scale = scales[current_scale]
+   local steps = #scale
+   if current_scale == "Chromatic" then
+      note = 12 + scale_root
+      note = note + x
+      note = note + 5 * (8 - y)
+   else
+      -- x maps to scale steps, y maps to "fifths" (4 scale steps per row)
+      local octave_offset = math.floor((x - 1) / steps)
+      local step_index = ((x - 1) % steps) + 1
+      local row_offset = 4 * (8 - y)
+      local total_steps = step_index + row_offset
+      local octave_shift = math.floor((total_steps - 1) / steps)
+      local final_step = ((total_steps - 1) % steps) + 1
+      note = 12 + scale_root + (octave_offset + octave_shift) * 12 + scale[final_step]
+   end
    return note
 end
 
@@ -127,7 +169,7 @@ local function play_note(x, y, z, note)
    note = note or xy_to_note(x, y)
    transpose = 12 * oct
    if z == 1 then 
-      if #playing >= 4 then
+      if #playing >= 8 then
          engine.harvest_note_off(playing[1].note + playing[1].transpose)
          table.remove(playing, 1)
       end
@@ -158,7 +200,7 @@ local function hold_note(x, y, z, note)
          end
       end
       if voice == nil then
-         if #playing >= 4 then
+         if #playing >= 8 then
             engine.harvest_note_off(playing[1].note + playing[1].transpose)
             table.remove(playing, 1)
          end
@@ -230,6 +272,22 @@ function init()
    }
 
    Harvest.init(false)
+
+   -- scale selector
+   local scale_names = {}
+   for name, _ in pairs(scales) do
+      table.insert(scale_names, name)
+   end
+   params:add{
+      type        = "option",
+      id          = "scale",
+      name        = "Scale",
+      options     = scale_names,
+      default     = 1,
+      action      = function(x)
+         current_scale = scale_names[x]
+      end
+   }
 
    params:add{
       type        = "option",
@@ -547,15 +605,22 @@ function redraw_grid()
    local background = 3
    g:all(0)
 
-   -- background
-   for n = 6, 16 do g:led(n, 1, background) end
-   for n = 5, 16 do g:led(n, 2, background) end
-   for n = 4, 16 do g:led(n, 3, background) end
-   for n = 3, 16 do g:led(n, 4, background) end
-   for n = 2, 16 do g:led(n, 5, background) end
-   for n = 1, 16 do g:led(n, 6, background) end
-   for n = 1, 16 do g:led(n, 7, background) end
-   for n = 1, 16 do g:led(n, 8, background) end
+   -- background: only show keys that belong to the current scale
+   local scale = scales[current_scale]
+   local steps = #scale
+   for x = 2, 16 do
+      for y = 1, 8 do
+         if current_scale == "Chromatic" then
+            g:led(x, y, background)
+         else
+            -- only light up columns that are within the scale pattern
+            local col_in_scale = ((x - 1) % steps) + 1
+            if col_in_scale <= steps then
+               g:led(x, y, background)
+            end
+         end
+      end
+   end
    
    -- coll 1 off
    g:led(1, 1, background)
@@ -564,14 +629,26 @@ function redraw_grid()
       g:led(1, n, background)
    end
 
-   -- cast shadows and light up held keys
+   -- cast shadows (level 1 for subtlety) and light up held keys
    for n = 1, #playing do
       for m = 1, math.min(trail, playing[n].x - 1, g.rows - playing[n].y) do
-         g:led(playing[n].x - m, playing[n].y + m, 0)
+         g:led(playing[n].x - m, playing[n].y + m, 1)
       end
    end
    for n = 1, #playing do
       g:led(playing[n].x, playing[n].y, 10)
+   end
+
+   -- tonic notes at level 5
+   if current_scale ~= "Chromatic" then
+      for x = 2, 16 do
+         for y = 1, 8 do
+            local n = xy_to_note(x, y)
+            if (n % 12) == scale_root then
+               g:led(x, y, 5)
+            end
+         end
+      end
    end
 
    -- col 1 on

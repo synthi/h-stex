@@ -1,8 +1,8 @@
 -- Harvest_engine
 -- a part of Høst
 --
--- v1.1
--- imminent gloom
+-- v1.2- Joaue Arias
+-- v1.1 imminent gloom
 
 local Harvest = {}
 
@@ -235,10 +235,10 @@ function Harvest.init(midicontrol)
       type        = "control",
       id          = "poly_max_attack",
       name        = "Vekst",
-      controlspec = controlspec.new(0.001, 10, "exp", 0.001, 1, "s"),
+      controlspec = controlspec.new(0.001, 20, "exp", 0.001, 1, "s"),
       action      = function(x)
          engine.harvest_poly_set("max_attack", x)
-			-- Harvest.poly_max_attack = math.log(x / 0.001) / math.log(10 / 0.001)
+			-- Harvest.poly_max_attack = math.log(x / 0.001) / math.log(20 / 0.001)
       end
    }
 
@@ -246,10 +246,10 @@ function Harvest.init(midicontrol)
       type        = "control",
       id          = "poly_max_release",
       name        = "Forfall",
-      controlspec = controlspec.new(0.001, 10, "exp", 0.001, 3, "s"),
+      controlspec = controlspec.new(0.001, 20, "exp", 0.001, 3, "s"),
       action      = function(x)
          engine.harvest_poly_set("max_release", x)
-			-- Harvest.poly_max_release = math.log(x / 0.001) / math.log(10 / 0.001)
+			-- Harvest.poly_max_release = math.log(x / 0.001) / math.log(20 / 0.001)
       end
    }
    
