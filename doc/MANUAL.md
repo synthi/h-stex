@@ -43,14 +43,24 @@ Al iniciar el script, el Fokus default es **Lys (3)**.
 
 | Posición | Función |
 |----------|---------|
-| (1,1) | **Hold** — Toggle mantener notas (Nei/Ja) |
+| (1,1) | **Hold** — Toggle mantener notas (Nei/Ja). Shift+Hold = Sostenuto |
 | (1,2) | **Loop** — Toggle repetición de envolvente (Nei/Ja) |
-| (1,3) | **Octava 3** (aguda) |
-| (1,4) | **Octava 2** (media) |
-| (1,5) | **Octava 1** (grave) |
+| (1,3) | Sin función (apagado) |
+| (1,4) | Sin función (apagado) |
+| (1,5) | Sin función (apagado) |
 | (1,6) | Zona playable (background) |
 | (1,7) | Zona playable (background) |
-| (1,8) | **Shift** — Botón momentáneo (brillo 5 reposo, 14 pulsado) |
+| (1,8) | **Shift** — Botón momentáneo (brillo 2 reposo, 14 pulsado) |
+
+### Fila 8 — Octavas y Shift
+
+| Posición | Función |
+|----------|---------|
+| (1,8) | **Shift** — Botón momentáneo |
+| (2,8) | **Octava 1** (grave) |
+| (3,8) | **Octava 2** (media) |
+| (4,8) | **Octava 3** (aguda) |
+| (5-16,8) | Sin función (apagado) |
 
 ### Columnas 2-16 — Teclado (filas 1-7)
 
@@ -75,8 +85,10 @@ El grid funciona como un teclado musical:
 | Sombra proyectada | 0 | Apagada (marca la dirección de las notas activas) |
 | Columna 1 — apagado | 4 | Botones de control en estado off |
 | Columna 1 — activo | 5/10 | Estado de hold, loop, octava |
-| Shift (1,8) reposo | 5 | Brillo tenue cuando no está pulsado |
+| Shift (1,8) reposo | 2 | Brillo tenue cuando no está pulsado |
 | Shift (1,8) pulsado | 14 | Brillo alto momentáneo |
+| Octava activa (2-4,8) | 5 | Octava seleccionada en fila 8 |
+| Hold con Sostenuto | 7→10 | Parpadeo suave entre nivel base y -3 |
 
 ---
 
@@ -96,7 +108,7 @@ El grid funciona como un teclado musical:
 |---------|-----------|------------|-------------|
 | E1 | `drone_freq` | Frecuencia (drone) | Ajuste fino de la frecuencia base del drone |
 | E2 | `fx_gain` | Fuerza (distorsión) | Ganancia de distorsión (tanh) |
-| E3 | `scale` | Escala musical | Cambia la escala musical activa |
+| E3 | `poly_scale` | Escala de envolvente | Escala global de la envolvente (1–100%) |
 
 ---
 
@@ -295,7 +307,17 @@ Esto permite control fino en el rango bajo (0-2s) con la mayor parte del recorri
 
 ---
 
-## 8. Persistencia de Estado
+## 8. Sostenuto (Shift + Hold)
+
+Mantén **Shift** (1,8) pulsado y pulsa **Hold** (1,1) para activar/desactivar el modo **Sostenuto**.
+
+- **Con Sostenuto activo:** Las notas que ya están en hold se mantienen sonando, pero las notas nuevas que toques **no** se quedan en hold (se comportan como notas normales).
+- **Indicador visual:** El LED de Hold parpadea suavemente entre su nivel normal y 3 niveles menos de brillo.
+- Útil para mantener un pedal armónico mientras sigues tocando melodías nuevas.
+
+---
+
+## 9. Persistencia de Estado
 
 Al salir del script (o al hacer PSET), se guarda automáticamente:
 
@@ -308,7 +330,7 @@ Al cargar el script, el estado se restaura automáticamente después de cargar l
 
 ---
 
-## 9. Consejos de Uso
+## 10. Consejos de Uso
 
 - **Drone + Poly:** Usa Jord como base armónica y Løv para melodías/texturas
 - **Shape en 0:** Ataque instantáneo, release corto → percusivo
@@ -322,7 +344,7 @@ Al cargar el script, el estado se restaura automáticamente después de cargar l
 
 ---
 
-## 10. Mejoras Implementadas (v1.4)
+## 11. Mejoras Implementadas (v1.4)
 
 | # | Mejora | Descripción |
 |---|--------|-------------|
@@ -336,6 +358,11 @@ Al cargar el script, el estado se restaura automáticamente después de cargar l
 | 8 | **Root Note** | Nuevo parámetro para cambiar la tónica (C..B) |
 | 9 | **Persistencia de estado** | Notas activas, hold, loop y octava se guardan al salir |
 | 10 | **Fokus default Lys** | El script inicia en modo FX (Lys) |
+| 11 | **Sostenuto** | Shift+Hold toggle: mantiene notas hold, nuevas no se holdean |
+| 12 | **Octavas en fila 8** | Botones de octava movidos a (2-4,8) |
+| 13 | **E3 → poly_scale** | Encoder 3 ahora controla escala de envolvente |
+| 14 | **Root Note retrigger** | Cambiar root note re-pitcha notas activas |
+| 15 | **Shift LED brillo 2** | Shift en reposo a nivel 2 |
 
 ---
 

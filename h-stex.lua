@@ -45,6 +45,7 @@ local   duration = 600
 local         ch = 1
 local       hold = false
 local   shift_held = false
+local  sostenuto = false
 local        oct = 2
 local      trail = 8
 
@@ -301,6 +302,13 @@ function init()
       default     = 1,
       action      = function(x)
          scale_root = x - 1
+         -- retrigger active notes with new root
+         for i, v in ipairs(playing) do
+            local new_note = xy_to_note(v.x, v.y)
+            engine.harvest_note_off(v.note + v.transpose)
+            engine.harvest_note_on(new_note + v.transpose, velocity, duration)
+            v.note = new_note
+         end
       end
    }
 
@@ -361,7 +369,7 @@ end
 function enc(n, d)
    if n == 1 then params:delta("drone_freq", d * 0.05) end
    if n == 2 then params:delta("fx_gain"   , d) end
-   if n == 3 then params:delta("scale", d) end
+   if n == 3 then params:delta("poly_scale", d) end
 end
 
 -- grid: keys
@@ -370,7 +378,9 @@ end
 g.key = function(x, y, z)
    if x == 1 and y == 1 then
       if z == 1 then
-         if params:get("poly_hold") == 2 then
+         if shift_held then
+            sostenuto = not sostenuto
+         elseif params:get("poly_hold") == 2 then
             params:set("poly_hold", 1) 
             stop_held()
          else
@@ -388,17 +398,17 @@ g.key = function(x, y, z)
             params:set("poly_loop", 2)
          end
       end
-   elseif x == 1 and y == 3 then
-      if z == 1 then oct = 3 end
-   elseif x == 1 and y == 4 then
-      if z == 1 then oct = 2 end
-   elseif x == 1 and y == 5 then
-      if z == 1 then oct = 1 end
    elseif x == 1 and y == 8 then
       shift_held = (z == 1)
+   elseif y == 8 and x == 2 and z == 1 then
+      oct = 1
+   elseif y == 8 and x == 3 and z == 1 then
+      oct = 2
+   elseif y == 8 and x == 4 and z == 1 then
+      oct = 3
    else
       if y <= 7 and x >= math.max(1, 7 - y) then
-         if not hold then play_note(x, y, z) else hold_note(x, y, z) end
+         if not hold or sostenuto then play_note(x, y, z) else hold_note(x, y, z) end
       end
    end
 end
@@ -650,11 +660,19 @@ function redraw_grid()
    end
    
    -- coll 1
-   g:led(1, 1, 4)   -- hold off → visible but dim
+   local hold_brightness = (Harvest.poly_hold == 1) and 10 or 4
+   if sostenuto then
+      local wave = (math.sin(frame * 0.08) + 1) / 2
+      hold_brightness = hold_brightness - math.floor(3 * wave + 0.5)
+   end
+   g:led(1, 1, hold_brightness)
    g:led(1, 2, 4)   -- loop off → visible but dim
+   g:led(1, 3, 0)   -- unused → off
+   g:led(1, 4, 0)   -- unused → off
+   g:led(1, 5, 0)   -- unused → off
    g:led(1, 6, background)  -- background for playable area
    g:led(1, 7, background)  -- background for playable area
-   g:led(1, 8, shift_held and 14 or 5)  -- shift button
+   g:led(1, 8, shift_held and 14 or 2)  -- shift button
 
    -- tonic notes at level 3, only within keyboard diagonal area (rows 1-7)
    for x = 2, 16 do
@@ -679,9 +697,11 @@ function redraw_grid()
    end
 
    -- col 1 on
-   if Harvest.poly_hold == 1 then g:led(1, 1, 10) end 
    if Harvest.poly_loop == 1 then g:led(1, 2, 10) end 
-   g:led(1, 6 - oct, 5)
+   -- octave LEDs in row 8
+   g:led(2, 8, oct == 1 and 5 or 0)
+   g:led(3, 8, oct == 2 and 5 or 0)
+   g:led(4, 8, oct == 3 and 5 or 0)
 
    g:refresh()
 end
