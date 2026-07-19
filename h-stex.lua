@@ -32,7 +32,7 @@ local  intensity = 8
 local  particles = {}
 local    density = 96
 
-local      focus = 3
+local      focus = 1
 local prev_focus = 1
 
 local    playing = {}
@@ -310,7 +310,7 @@ function init()
 
    params:bang()
 
-   params:set("focus", 3)
+   params:set("focus", 1)
 end
 
 -- norns: keys
@@ -431,6 +431,7 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 function redraw()
+   print("redraw ok", focus)
    s.clear()
    
    if splash then
@@ -601,6 +602,7 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 function redraw_grid()
+   print("grid ok")
    local background = 1
    g:all(0)
 
