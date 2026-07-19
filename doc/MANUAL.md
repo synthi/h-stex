@@ -1,7 +1,7 @@
 # HØST — Manual de Uso
 
-**Versión:** 1.2  
-**Autor:** synthi (modificado)  
+**Versión:** 1.4  
+**Autor:** Joaue Arias (basado en synthi)  
 **Plataforma:** norns (compatible Pi 4B)  
 **Hardware:** Grid 16×8, 16n faders (MIDI), norns keys/encoders
 
@@ -16,7 +16,7 @@ El motor de sonido tiene 3 componentes principales:
 | Componente | Nombre | Descripción |
 |------------|--------|-------------|
 | **Jord** (Tierra) | Drone | Oscilador continuo con morphing saw→sine→square, ruido, threshold |
-| **Løv** (Hoja) | Poly-synth | Polifonía de 8 voces, misma arquitectura que el drone + envolvente |
+| **Løv** (Hoja) | Poly-synth | Polifonía de 12 voces, misma arquitectura que el drone + envolvente |
 | **Lys** (Luz) | FX | 2 filtros SVF bandpass + delay con feedback + distorsión tanh |
 
 Flujo de señal: `Drone + Voces Poly → Bus interno → FX (filtros → delay → distorsión) → Salida`
@@ -33,6 +33,8 @@ El script tiene 3 modos llamados **Fokus**. Cada modo expone 4 parámetros difer
 | 2 | **Løv** | Hoja (Poly) | Timbre, Noise, Bias, Shape |
 | 3 | **Lys** | Luz (FX) | Peak 1, Peak 2, Body, Time |
 
+Al iniciar el script, el Fokus default es **Lys (3)**.
+
 ---
 
 ## 3. Controles del Grid (16×8)
@@ -46,17 +48,18 @@ El script tiene 3 modos llamados **Fokus**. Cada modo expone 4 parámetros difer
 | (1,3) | **Octava 3** (aguda) |
 | (1,4) | **Octava 2** (media) |
 | (1,5) | **Octava 1** (grave) |
-| (1,6) | **Fokus 1** — Jord |
-| (1,7) | **Fokus 2** — Løv |
-| (1,8) | **Fokus 3** — Lys |
+| (1,6) | Zona playable (background) |
+| (1,7) | Zona playable (background) |
+| (1,8) | **Shift** — Botón momentáneo (brillo 5 reposo, 14 pulsado) |
 
-### Columnas 2-16 — Teclado
+### Columnas 2-16 — Teclado (filas 1-7)
 
 El grid funciona como un teclado musical:
 
 - **Eje X (columnas):** Avanza por las notas de la escala seleccionada
 - **Eje Y (filas):** Cada fila hacia arriba equivale a una "quinta" (4 pasos de escala)
-- **Nota base:** Do# (MIDI 12 + tónica de escala)
+- **Nota base:** Do (MIDI 12 + tónica de escala)
+- **Fila 8:** Libre (no forma parte del teclado)
 
 **Con escala Chromatic (default):** 12 columnas por octava, comportamiento original.
 
@@ -66,12 +69,14 @@ El grid funciona como un teclado musical:
 
 | Elemento | Nivel LED | Descripción |
 |----------|-----------|-------------|
-| Fondo de teclas activas | 1 | Patrón diagonal original (escalonado) |
-| Tónica de la escala | 2 | Nota raíz de la escala (sutil) |
+| Fondo de teclas activas | 1 | Patrón diagonal original (escalonado, filas 1-7) |
+| Tónica de la escala | 3 | Nota raíz de la escala |
 | Nota pulsada | 10 | Nota que está sonando actualmente (sobrescribe a la tónica) |
 | Sombra proyectada | 0 | Apagada (marca la dirección de las notas activas) |
-| Columna 1 — apagado | 0 | Botones de control en estado off |
-| Columna 1 — activo | 5/10 | Estado de hold, loop, octava, fokus |
+| Columna 1 — apagado | 4 | Botones de control en estado off |
+| Columna 1 — activo | 5/10 | Estado de hold, loop, octava |
+| Shift (1,8) reposo | 5 | Brillo tenue cuando no está pulsado |
+| Shift (1,8) pulsado | 14 | Brillo alto momentáneo |
 
 ---
 
@@ -91,7 +96,7 @@ El grid funciona como un teclado musical:
 |---------|-----------|------------|-------------|
 | E1 | `drone_freq` | Frecuencia (drone) | Ajuste fino de la frecuencia base del drone |
 | E2 | `fx_gain` | Fuerza (distorsión) | Ganancia de distorsión (tanh) |
-| E3 | `poly_shape` | Kontur (contorno) | Forma de envolvente: 0=percusivo, 0.5=pad, 1=swell |
+| E3 | `scale` | Escala musical | Cambia la escala musical activa |
 
 ---
 
@@ -167,8 +172,8 @@ El grid funciona como un teclado musical:
 
 | Parámetro (sueco) | Traducción | ID | Rango | Default | Descripción |
 |-------------------|------------|-----|-------|---------|-------------|
-| Vekst | Crecimiento | `poly_max_attack` | 0.001–20 s | 1 s | Tiempo máximo de ataque |
-| Forfall | Decaimiento | `poly_max_release` | 0.001–20 s | 3 s | Tiempo máximo de release |
+| Vekst | Crecimiento | `poly_max_attack` | 0.001–24 s | ~2 s | Tiempo máximo de ataque (curva sigmoid) |
+| Forfall | Decaimiento | `poly_max_release` | 0.001–24 s | ~3 s | Tiempo máximo de release (curva sigmoid) |
 | Skala | Escala | `poly_scale` | 1–100% | 100% | Escala global de la envolvente |
 | Repeter? | ¿Repetir? | `poly_loop` | Nei/Ja | Nei | Loop de envolvente (ararar) |
 
@@ -177,6 +182,12 @@ El grid funciona como un teclado musical:
 | Parámetro | ID | Opciones | Default |
 |-----------|-----|----------|---------|
 | Scale | `scale` | 21 escalas (ver abajo) | Chromatic |
+
+#### Root Note
+
+| Parámetro | ID | Opciones | Default |
+|-----------|-----|----------|---------|
+| Root Note | `root_note` | C, C#, D, D#, E, F, F#, G, G#, A, A#, B | C |
 
 **Escalas disponibles:**
 
@@ -254,7 +265,7 @@ El 16n envía MIDI CC por USB. Mapeo sugerido:
 
 ### Motor de Audio (SuperCollider)
 
-- **Polifonía:** 8 voces simultáneas
+- **Polifonía:** 12 voces simultáneas
 - **Prioridad:** Low-note priority (la nota más grave tiene prioridad para sub-oscillator)
 - **Drone:** 1 voz continua
 - **FX:** 2 SVF bandpass en paralelo → delay con feedback (LPF interno) → distorsión tanh
@@ -272,9 +283,32 @@ env = ASR o ARARAR (loop) según parámetro loop
 lpg = LPF(min, env.linexp(0,1,200,20000), env * vel * amp)
 ```
 
+### Curva Sigmoid (Attack/Release)
+
+Los parámetros `poly_max_attack` y `poly_max_release` usan una curva sigmoid con k=12, c=0.93:
+
+- **0% knob:** ~0.001s
+- **70% knob:** ~2s
+- **100% knob:** 24s
+
+Esto permite control fino en el rango bajo (0-2s) con la mayor parte del recorrido del knob, y acceso a valores extremos (hasta 24s) al final.
+
 ---
 
-## 8. Consejos de Uso
+## 8. Persistencia de Estado
+
+Al salir del script (o al hacer PSET), se guarda automáticamente:
+
+- **Notas activas** (posición en grid y nota MIDI)
+- **Estado de Hold** (Nei/Ja)
+- **Estado de Loop** (Nei/Ja)
+- **Octava seleccionada**
+
+Al cargar el script, el estado se restaura automáticamente después de cargar los parámetros.
+
+---
+
+## 9. Consejos de Uso
 
 - **Drone + Poly:** Usa Jord como base armónica y Løv para melodías/texturas
 - **Shape en 0:** Ataque instantáneo, release corto → percusivo
@@ -282,20 +316,27 @@ lpg = LPF(min, env.linexp(0,1,200,20000), env * vel * amp)
 - **Shape en 1:** Ataque largo, release instantáneo → swell/buildup
 - **Body en FX:** 0 = dry, ~0.25 = filtros, ~0.5 = filtros+delay, ~0.75 = dry+delay, 1 = dry
 - **Escalas:** Cambia la escala para explorar diferentes modos y texturas armónicas
+- **Root Note:** Cambia la tónica de la escala (se ilumina a nivel 3 en el grid)
 - **Hold + Loop:** Activa hold y loop para crear secuencias/texturas en capas
+- **Shift:** Botón momentáneo en (1,8) — preparado para futuras funciones
 
 ---
 
-## 9. Mejoras Implementadas (v1.2)
+## 10. Mejoras Implementadas (v1.4)
 
 | # | Mejora | Descripción |
 |---|--------|-------------|
 | 1 | **21 escalas musicales** | Grid re-mapeado: solo existen las notas de la escala seleccionada |
-| 2 | **Sombras sutiles** | Brillo de sombras reducido a nivel 1 |
-| 3 | **Tónicas iluminadas** | Notas raíz de la escala a nivel 5 en el grid |
-| 4 | **Attack/Release 20s** | Tiempos máximos de envolvente extendidos a 20 segundos |
-| 5 | **Polifonía 8 voces** | De 4 a 8 voces simultáneas |
+| 2 | **Tónicas iluminadas** | Notas raíz de la escala a nivel 3 en el grid |
+| 3 | **Attack/Release 24s** | Tiempos máximos de envolvente extendidos a 24s con curva sigmoid |
+| 4 | **Polifonía 12 voces** | De 4 a 12 voces simultáneas |
+| 5 | **Shift momentáneo** | Botón (1,8) momentáneo con LED 5/14 |
+| 6 | **Fila 8 libre** | La fila 8 del grid no forma parte del teclado |
+| 7 | **Background extendido** | Columnas (1,6) y (1,7) iluminadas como zona playable |
+| 8 | **Root Note** | Nuevo parámetro para cambiar la tónica (C..B) |
+| 9 | **Persistencia de estado** | Notas activas, hold, loop y octava se guardan al salir |
+| 10 | **Fokus default Lys** | El script inicia en modo FX (Lys) |
 
 ---
 
-*Høst — v1.2*
+*Høst — v1.4*
