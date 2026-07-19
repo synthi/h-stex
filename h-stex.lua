@@ -546,10 +546,10 @@ g.key = function(x, y, z)
                sostenuto = not sostenuto
             end
          elseif params:get("poly_hold") == 2 then
-            -- hold ON → OFF (incluso desde sostenuto)
-            params:set("poly_hold", 1)
-            sostenuto = false
-            stop_held()
+             -- hold ON → OFF (incluso desde sostenuto)
+             params:set("poly_hold", 1)
+             sostenuto = false
+             stop_keys()
          else
             -- hold OFF → ON
             params:set("poly_hold", 2)
