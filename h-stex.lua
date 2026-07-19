@@ -400,6 +400,12 @@ function init()
                   end)
                end
             end
+            -- fix: notes loaded via hold_note() have held=false, but they should be held
+            if saved.hold then
+               for i = 1, #playing do
+                  playing[i].held = true
+               end
+            end
          end
       end
    end
