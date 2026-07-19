@@ -1,6 +1,6 @@
 # HØST — Manual de Uso
 
-**Versión:** 1.4  
+**Versión:** 1.5  
 **Autor:** Joaue Arias (basado en synthi)  
 **Plataforma:** norns (compatible Pi 4B)  
 **Hardware:** Grid 16×8, 16n faders (MIDI), norns keys/encoders
@@ -57,9 +57,9 @@ Al iniciar el script, el Fokus default es **Lys (3)**.
 | Posición | Función |
 |----------|---------|
 | (1,8) | **Shift** — Botón momentáneo |
-| (2,8) | **Octava 1** (grave) |
-| (3,8) | **Octava 2** (media) |
-| (4,8) | **Octava 3** (aguda) |
+| (2,8) | **Octava -** — 1er tap: -1 oct (LED 5), 2º tap: -2 oct (LED parpadea 6↔2), 3er tap: vuelve a 0 |
+| (3,8) | **Octava 0** — Siempre vuelve a octava base (LED 5 fijo) |
+| (4,8) | **Octava +** — 1er tap: +1 oct (LED 5), 2º tap: +2 oct (LED parpadea 6↔2), 3er tap: vuelve a 0 |
 | (5-16,8) | Sin función (apagado) |
 
 ### Columnas 2-16 — Teclado (filas 1-7)
@@ -88,7 +88,8 @@ El grid funciona como un teclado musical:
 | Shift (1,8) reposo | 2 | Brillo tenue cuando no está pulsado |
 | Shift (1,8) pulsado | 14 | Brillo alto momentáneo |
 | Octava activa (2-4,8) | 5 | Octava seleccionada en fila 8 |
-| Hold con Sostenuto | 7→10 | Parpadeo suave entre nivel base y -3 |
+| Hold con Sostenuto | 1→10 | Parpadeo suave entre nivel 1 y nivel base |
+| Octava extendida | 2↔6 | Parpadeo medio en -2/+2 octavas |
 
 ---
 
@@ -248,28 +249,34 @@ El script soporta entrada MIDI para control externo (teclados, controladores, 16
 | Note Off | Apaga nota poly |
 | CC 64 (Sustain) | Sustain/Sostenuto pedal |
 
-### 16n Faders (recomendación de mapeo)
+### 16n Faders (nativo)
 
-El 16n envía MIDI CC por USB. Mapeo sugerido:
+El script detecta automáticamente el 16n por USB y lo configura con soft takeover.
 
-| Fader | CC | Parámetro |
-|-------|-----|-----------|
-| 1 | 1 | `drone_timbre` |
-| 2 | 2 | `drone_noise` |
-| 3 | 3 | `drone_bias` |
-| 4 | 4 | `drone_freq` |
-| 5 | 5 | `poly_timbre` |
-| 6 | 6 | `poly_noise` |
-| 7 | 7 | `poly_bias` |
-| 8 | 8 | `poly_shape` |
-| 9 | 9 | `fx_peak_1` |
-| 10 | 10 | `fx_peak_2` |
-| 11 | 11 | `fx_body` |
-| 12 | 12 | `fx_time` |
-| 13 | 13 | `fx_gain` |
-| 14 | 14 | `poly_max_attack` |
-| 15 | 15 | `poly_max_release` |
-| 16 | 16 | `poly_scale` |
+#### Soft Takeover
+
+Cada fader tiene protección soft takeover: si el valor del fader no coincide con el valor actual del parámetro, se muestra un popup en pantalla indicando `* NOMBRE: fader → actual` hasta que iguales la posición. Una vez sincronizado, el fader toma control y muestra el nombre y valor actual.
+
+#### Mapeo de Faders
+
+| Fader | Parámetro | Nombre |
+|-------|-----------|--------|
+| 1 | `drone_timbre` | Klangfarge (Drone) |
+| 2 | `drone_noise` | Støy (Drone) |
+| 3 | `drone_bias` | Terskel (Drone) |
+| 4 | `drone_freq` | Frekvens (Drone) |
+| 5 | `poly_timbre` | Klangfarge (Poly) |
+| 6 | `poly_noise` | Støy (Poly) |
+| 7 | `poly_bias` | Terskel (Poly) |
+| 8 | `poly_shape` | Kontur |
+| 9 | `fx_peak_1` | Første |
+| 10 | `fx_peak_2` | Andre |
+| 11 | `fx_body` | Kropp |
+| 12 | `fx_time` | Tid |
+| 13 | `poly_max_attack` | Vekst |
+| 14 | `poly_max_release` | Forfall |
+| 15 | `drone_amp` | Volum (Drone) |
+| 16 | `poly_amp` | Volum (Poly) |
 
 ---
 
@@ -324,7 +331,7 @@ Al salir del script (o al hacer PSET), se guarda automáticamente:
 - **Notas activas** (posición en grid y nota MIDI)
 - **Estado de Hold** (Nei/Ja)
 - **Estado de Loop** (Nei/Ja)
-- **Octava seleccionada**
+- **Octava seleccionada** y estados multi-tap de octava
 
 Al cargar el script, el estado se restaura automáticamente después de cargar los parámetros.
 
@@ -344,7 +351,7 @@ Al cargar el script, el estado se restaura automáticamente después de cargar l
 
 ---
 
-## 11. Mejoras Implementadas (v1.4)
+## 11. Mejoras Implementadas (v1.5)
 
 | # | Mejora | Descripción |
 |---|--------|-------------|
@@ -356,14 +363,17 @@ Al cargar el script, el estado se restaura automáticamente después de cargar l
 | 6 | **Fila 8 libre** | La fila 8 del grid no forma parte del teclado |
 | 7 | **Background extendido** | Columnas (1,6) y (1,7) iluminadas como zona playable |
 | 8 | **Root Note** | Nuevo parámetro para cambiar la tónica (C..B) |
-| 9 | **Persistencia de estado** | Notas activas, hold, loop y octava se guardan al salir |
+| 9 | **Persistencia de estado** | Notas activas, hold, loop, octava y estados multi-tap se guardan al salir |
 | 10 | **Fokus default Lys** | El script inicia en modo FX (Lys) |
 | 11 | **Sostenuto** | Shift+Hold toggle: mantiene notas hold, nuevas no se holdean |
 | 12 | **Octavas en fila 8** | Botones de octava movidos a (2-4,8) |
 | 13 | **E3 → poly_scale** | Encoder 3 ahora controla escala de envolvente |
 | 14 | **Root Note retrigger** | Cambiar root note re-pitcha notas activas |
 | 15 | **Shift LED brillo 2** | Shift en reposo a nivel 2 |
+| 16 | **Octavas multi-tap** | Botón 2: -1/-2 oct, botón 4: +1/+2 oct (LED 6↔2 en -2/+2) |
+| 17 | **16n nativo** | Detección automática con soft takeover y popup en pantalla |
+| 18 | **Headroom poly** | Reducción de ganancia poly -6dB para evitar clipping con 12 voces |
 
 ---
 
-*Høst — v1.4*
+*Høst — v1.5*

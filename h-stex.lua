@@ -18,6 +18,8 @@ engine.name = "Harvest"
     Harvest = include("lib/Harvest_engine")
         tab = require("tabutil")
     Storage = include("lib/storage")
+          UI = include("lib/ui")
+         _16n = include("lib/16n")
 
 local save_on_exit = true
 
@@ -47,6 +49,10 @@ local       hold = false
 local   shift_held = false
 local  sostenuto = false
 local        oct = 2
+local oct_state_1 = 0
+local oct_state_3 = 0
+local fader_latched = {}
+for i = 1, 16 do fader_latched[i] = false end
 local      trail = 8
 
 local scales = {
@@ -336,6 +342,8 @@ function init()
       if saved.hold then params:set("poly_hold", 2) end
       if saved.loop then params:set("poly_loop", 2) end
       oct = saved.oct or 2
+      oct_state_1 = saved.oct_state_1 or 0
+      oct_state_3 = saved.oct_state_3 or 0
       if saved.notes then
          for _, n in ipairs(saved.notes) do
             if not hold then play_note(n.x, n.y, 1, n.note) else hold_note(n.x, n.y, 1, n.note) end
@@ -346,6 +354,91 @@ function init()
    params:bang()
 
    params:set("focus", 3)
+
+   -- 16n fader controller initialization with soft takeover
+   clock.run(function()
+      clock.sleep(2.0)
+      _16n.init(function(msg)
+         local id = _16n.cc_2_slider_id(msg.cc)
+         if not id then return end
+
+         -- fader -> param mapping
+         local fader_map = {
+            [1]  = "drone_timbre",
+            [2]  = "drone_noise",
+            [3]  = "drone_bias",
+            [4]  = "drone_freq",
+            [5]  = "poly_timbre",
+            [6]  = "poly_noise",
+            [7]  = "poly_bias",
+            [8]  = "poly_shape",
+            [9]  = "fx_peak_1",
+            [10] = "fx_peak_2",
+            [11] = "fx_body",
+            [12] = "fx_time",
+            [13] = "poly_max_attack",
+            [14] = "poly_max_release",
+            [15] = "drone_amp",
+            [16] = "poly_amp",
+         }
+         local p_name = fader_map[id]
+         if not p_name then return end
+
+         local p_obj = params:lookup_param(p_name)
+         if not p_obj then return end
+
+         -- normalize midi value (1-127) to 0-1
+         local val_norm = util.linlin(0, 127, 0, 1, msg.val)
+         local current_norm = params:get_raw(p_name)
+
+         -- controlspec mapping for display
+         local target_val = p_obj.controlspec:map(val_norm)
+         local current_val = params:get(p_name)
+
+         local fader_display
+         if p_name == "drone_freq" or p_name == "fx_peak_1" or p_name == "fx_peak_2" then
+            fader_display = string.format("%.0f Hz", target_val)
+         elseif p_name == "fx_time" then
+            fader_display = string.format("%.2f s", target_val)
+         elseif p_name == "poly_max_attack" or p_name == "poly_max_release" then
+            fader_display = string.format("%.2f s", target_val)
+         else
+            fader_display = string.format("%.2f", target_val)
+         end
+
+         local diff = math.abs(val_norm - current_norm)
+
+         if not fader_latched[id] then
+            if diff < 0.05 then
+               fader_latched[id] = true
+            else
+               -- takeover: show target -> current
+               local current_display
+               if p_name == "drone_freq" or p_name == "fx_peak_1" or p_name == "fx_peak_2" then
+                  current_display = string.format("%.0f Hz", current_val)
+               elseif p_name == "fx_time" then
+                  current_display = string.format("%.2f s", current_val)
+               elseif p_name == "poly_max_attack" or p_name == "poly_max_release" then
+                  current_display = string.format("%.2f s", current_val)
+               else
+                  current_display = string.format("%.2f", current_val)
+               end
+               UI.show_popup("* " .. p_obj.name, fader_display .. " -> " .. current_display, 1.5)
+               return
+            end
+         end
+
+         if fader_latched[id] then
+            if diff > 0.15 then
+               fader_latched[id] = false
+            else
+               params:set(p_name, target_val)
+               UI.show_popup(p_obj.name, fader_display, 1.5)
+            end
+         end
+      end)
+      print("16n initialized.")
+   end)
 end
 
 -- norns: keys
@@ -401,11 +494,30 @@ g.key = function(x, y, z)
    elseif x == 1 and y == 8 then
       shift_held = (z == 1)
    elseif y == 8 and x == 2 and z == 1 then
-      oct = 1
+      -- botón 1: ciclo 0 (-1) -> 1 (-2) -> 2 (back to 0)
+      oct_state_1 = (oct_state_1 + 1) % 3
+      if oct_state_1 == 0 then
+         oct = 2
+      elseif oct_state_1 == 1 then
+         oct = 1
+      else
+         oct = 0
+      end
    elseif y == 8 and x == 3 and z == 1 then
+      -- botón 2: siempre octava base
       oct = 2
+      oct_state_1 = 0
+      oct_state_3 = 0
    elseif y == 8 and x == 4 and z == 1 then
-      oct = 3
+      -- botón 3: ciclo 0 (+1) -> 1 (+2) -> 2 (back to 0)
+      oct_state_3 = (oct_state_3 + 1) % 3
+      if oct_state_3 == 0 then
+         oct = 2
+      elseif oct_state_3 == 1 then
+         oct = 3
+      else
+         oct = 4
+      end
    else
       if y <= 7 and x >= math.max(1, 7 - y) then
          if not hold or sostenuto then play_note(x, y, z) else hold_note(x, y, z) end
@@ -627,6 +739,8 @@ function redraw()
       s.fill()
    end
 
+   UI.draw_popup()
+
    s.update()
    s.ping()
 end
@@ -663,7 +777,7 @@ function redraw_grid()
    local hold_brightness = (Harvest.poly_hold == 1) and 10 or 4
    if sostenuto then
       local wave = (math.sin(frame * 0.08) + 1) / 2
-      hold_brightness = hold_brightness - math.floor(3 * wave + 0.5)
+      hold_brightness = 1 + math.floor((hold_brightness - 1) * (1 - wave) + 0.5)
    end
    g:led(1, 1, hold_brightness)
    g:led(1, 2, 4)   -- loop off → visible but dim
@@ -698,10 +812,28 @@ function redraw_grid()
 
    -- col 1 on
    if Harvest.poly_loop == 1 then g:led(1, 2, 10) end 
-   -- octave LEDs in row 8
-   g:led(2, 8, oct == 1 and 5 or 0)
-   g:led(3, 8, oct == 2 and 5 or 0)
-   g:led(4, 8, oct == 3 and 5 or 0)
+   -- octave LEDs in row 8 with multi-tap blink
+   local oct_wave = (math.sin(frame * 0.10) + 1) / 2
+   local oct_led_1 = 0
+   local oct_led_2 = (oct == 2 and oct_state_1 == 0 and oct_state_3 == 0) and 5 or 0
+   local oct_led_3 = 0
+
+   -- botón 2 (x=2): fijo en -1, parpadeo 6↔2 en -2
+   if oct == 1 and oct_state_1 == 1 then
+      oct_led_1 = 5
+   elseif oct == 0 and oct_state_1 == 2 then
+      oct_led_1 = 2 + math.floor(4 * oct_wave + 0.5)
+   end
+   -- botón 4 (x=4): fijo en +1, parpadeo 6↔2 en +2
+   if oct == 3 and oct_state_3 == 1 then
+      oct_led_3 = 5
+   elseif oct == 4 and oct_state_3 == 2 then
+      oct_led_3 = 2 + math.floor(4 * oct_wave + 0.5)
+   end
+
+   g:led(2, 8, oct_led_1)
+   g:led(3, 8, oct_led_2)
+   g:led(4, 8, oct_led_3)
 
    g:refresh()
 end
@@ -824,7 +956,7 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 function cleanup()
-   Storage.save(playing, hold, Harvest.poly_loop == 1, oct)
+   Storage.save(playing, hold, Harvest.poly_loop == 1, oct, oct_state_1, oct_state_3)
    stop_keys()
    if save_on_exit then params:write(norns.state.data .. "state.pset") end
 end

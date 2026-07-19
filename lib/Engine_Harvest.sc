@@ -144,7 +144,7 @@ Engine_Harvest : CroneEngine {
 
          lpg = LPF.ar(min, env.linexp(0, 1, 200, 20000), env * vel * amp);
 
-         Out.ar(\out.ir(0), Pan2.ar(lpg) * 0.5);
+         Out.ar(\out.ir(0), Pan2.ar(lpg) * 0.25);
       }).add;
 
       // initialize fx synth and bus

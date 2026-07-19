@@ -9,16 +9,20 @@ local function state_path()
 end
 
 -- Save current state to disk
--- @param playing  table of active notes (each: {note, x, y, ...})
--- @param hold     boolean (poly_hold state)
--- @param loop     boolean (poly_loop state)
--- @param oct      number (current octave 1-3)
-function Storage.save(playing, hold, loop, oct)
+-- @param playing      table of active notes (each: {note, x, y, ...})
+-- @param hold         boolean (poly_hold state)
+-- @param loop         boolean (poly_loop state)
+-- @param oct          number (current octave)
+-- @param oct_state_1  number (0-2, left oct button cycle)
+-- @param oct_state_3  number (0-2, right oct button cycle)
+function Storage.save(playing, hold, loop, oct, oct_state_1, oct_state_3)
    local data = {
-      notes  = {},
-      hold   = hold,
-      loop   = loop,
-      oct    = oct,
+      notes        = {},
+      hold         = hold,
+      loop         = loop,
+      oct          = oct,
+      oct_state_1  = oct_state_1,
+      oct_state_3  = oct_state_3,
    }
    for _, n in ipairs(playing) do
       table.insert(data.notes, {note = n.note, x = n.x, y = n.y})
