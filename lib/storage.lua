@@ -1,6 +1,6 @@
 -- storage.lua
--- persistent state for h-stex (notes, hold, loop, octave)
--- v1.2 — per-PSET storage with timestamps
+-- persistent state for h-stex (notes, hold, loop, octave, envelope params)
+-- v1.3 — per-PSET storage with cycle_len for reproducible loop timing
 
 local Storage = {}
 
@@ -17,12 +17,14 @@ end
 -- @param hold         boolean (poly_hold state)
 -- @param loop         boolean (poly_loop state)
 -- @param oct          number (current octave 0..4)
-function Storage.save(playing, hold, loop, oct)
+-- @param cycle_len    number (pre-calculated envelope cycle length for loop)
+function Storage.save(playing, hold, loop, oct, cycle_len)
    local data = {
       notes = {},
       hold  = hold,
       loop  = loop,
       oct   = oct,
+      cycle_len = cycle_len or 0.02,
    }
    for _, n in ipairs(playing) do
       table.insert(data.notes, {note = n.note, x = n.x, y = n.y, timestamp = n.timestamp})
@@ -31,7 +33,7 @@ function Storage.save(playing, hold, loop, oct)
 end
 
 -- Load saved state from disk
--- @return table with .notes, .hold, .loop, .oct or nil
+-- @return table with .notes, .hold, .loop, .oct, .cycle_len or nil
 function Storage.load()
    local ok, data = pcall(tab.load, state_path())
    if ok and data then
@@ -46,7 +48,8 @@ end
 -- @param hold         boolean
 -- @param loop         boolean
 -- @param oct          number (0..4)
-function Storage.save_pset(number, playing, hold, loop, oct)
+-- @param cycle_len    number (pre-calculated envelope cycle length for loop)
+function Storage.save_pset(number, playing, hold, loop, oct, cycle_len)
    if not number then return end
    if not util.file_exists(_path.data .. "host") then
       util.make_dir(_path.data .. "host")
@@ -56,6 +59,7 @@ function Storage.save_pset(number, playing, hold, loop, oct)
       hold  = hold,
       loop  = loop,
       oct   = oct,
+      cycle_len = cycle_len or 0.02,
    }
    for _, n in ipairs(playing) do
       table.insert(data.notes, {note = n.note, x = n.x, y = n.y, timestamp = n.timestamp})

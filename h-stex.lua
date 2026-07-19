@@ -243,6 +243,31 @@ local function arc_bar(enc, val, level)
    end
 end
 
+-- LinSelectX replica from SuperCollider
+local function linselect(idx, arr)
+   local i = math.floor(idx)
+   local frac = idx - i
+   if i < 0 then return arr[1]
+   elseif i >= #arr - 1 then return arr[#arr]
+   else return arr[i + 1] * (1 - frac) + arr[i + 2] * frac end
+end
+
+-- Calculate envelope cycle length matching SC harvestpoly synth
+-- shape=0 → attack=0.01, release=0.01 → cycle=0.02
+-- shape=0.33 → attack=0.01, release=max_r*scale → cycle=0.01+max_r*scale
+-- shape=0.67 → attack=max_a*scale, release=max_r*scale → cycle=(max_a+max_r)*scale
+-- shape=1 → attack=max_a*scale, release=0.01 → cycle=max_a*scale+0.01
+local function calc_cycle_len()
+   local shape = params:get("poly_shape")
+   local scale_val = params:get("poly_scale")
+   local max_a = Harvest.max_attack or 0.197
+   local max_r = Harvest.max_release or 1
+   local idx = shape * 3
+   local attack = util.clamp(linselect(idx, {0.01, 0.01, max_a, max_a}) * scale_val, 0.01, max_a)
+   local release = util.clamp(linselect(idx, {0.01, max_r, max_r, 0.01}) * scale_val, 0.01, max_r)
+   return attack + release
+end
+
 -- init
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
@@ -335,7 +360,7 @@ function init()
 
    -- per-PSET state persistence (like ncoco)
    params.action_write = function(filename, name, number)
-      Storage.save_pset(number, playing, hold, Harvest.poly_loop == 1, oct)
+      Storage.save_pset(number, playing, hold, Harvest.poly_loop == 1, oct, calc_cycle_len())
    end
    params.action_read = function(filename, silent, number)
       stop_keys()
@@ -345,27 +370,11 @@ function init()
          oct = saved.oct or 2
          if saved.hold then params:set("poly_hold", 2) end
          if saved.loop then params:set("poly_loop", 2) end
+         local cycle_len = saved.cycle_len or 0.02
          if saved.notes then
             -- sort by timestamp
             table.sort(saved.notes, function(a, b) return (a.timestamp or 0) < (b.timestamp or 0) end)
             local min_ts = saved.notes[1] and saved.notes[1].timestamp or 0
-            -- calculate cycle length for loop timing (LinSelectX replica from SC)
-            local function linselect(idx, arr)
-               local i = math.floor(idx)
-               local frac = idx - i
-               if i < 0 then return arr[1]
-               elseif i >= #arr - 1 then return arr[#arr]
-               else return arr[i + 1] * (1 - frac) + arr[i + 2] * frac end
-            end
-             local shape = params:get("poly_shape")
-             local scale_val = params:get("poly_scale")
-             local max_a = Harvest.max_attack or 0.197
-             local max_r = Harvest.max_release or 1
-             local idx = shape * 3
-             local attack = util.clamp(linselect(idx, {0.01, 0.01, max_a, max_a}) * scale_val, 0.01, max_a)
-             local release = util.clamp(linselect(idx, {0.01, max_r, max_r, 0.01}) * scale_val, 0.01, max_r)
-             local cycle_len = attack + 2 * release
-
             for _, n in ipairs(saved.notes) do
                local offset = (n.timestamp or min_ts) - min_ts
                if saved.loop and cycle_len > 0.02 then
@@ -1005,7 +1014,7 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 function cleanup()
-   Storage.save(playing, hold, Harvest.poly_loop == 1, oct)
+   Storage.save(playing, hold, Harvest.poly_loop == 1, oct, calc_cycle_len())
    stop_keys()
    if save_on_exit then params:write(norns.state.data .. "state.pset") end
 end
