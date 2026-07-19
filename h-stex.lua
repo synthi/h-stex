@@ -32,7 +32,7 @@ local  intensity = 8
 local  particles = {}
 local    density = 96
 
-local      focus = 1
+local      focus = 3
 local prev_focus = 1
 
 local    playing = {}
@@ -43,6 +43,7 @@ local   velocity = 100
 local   duration = 600
 local         ch = 1
 local       hold = false
+local   shift_held = false
 local        oct = 2
 local      trail = 8
 
@@ -169,7 +170,7 @@ local function play_note(x, y, z, note)
    note = note or xy_to_note(x, y)
    transpose = 12 * oct
    if z == 1 then 
-      if #playing >= 8 then
+      if #playing >= 12 then
          engine.harvest_note_off(playing[1].note + playing[1].transpose)
          table.remove(playing, 1)
       end
@@ -200,7 +201,7 @@ local function hold_note(x, y, z, note)
          end
       end
       if voice == nil then
-         if #playing >= 8 then
+         if #playing >= 12 then
             engine.harvest_note_off(playing[1].note + playing[1].transpose)
             table.remove(playing, 1)
          end
@@ -309,7 +310,7 @@ function init()
 
    params:bang()
 
-   params:set("focus", 1)
+   params:set("focus", 3)
 end
 
 -- norns: keys
@@ -333,7 +334,7 @@ end
 function enc(n, d)
    if n == 1 then params:delta("drone_freq", d * 0.05) end
    if n == 2 then params:delta("fx_gain"   , d) end
-   if n == 3 then params:delta("poly_shape", d) end
+   if n == 3 then params:delta("scale", d) end
 end
 
 -- grid: keys
@@ -366,14 +367,12 @@ g.key = function(x, y, z)
       if z == 1 then oct = 2 end
    elseif x == 1 and y == 5 then
       if z == 1 then oct = 1 end
-   elseif x == 1 and y == 6 then
-      if z == 1 then params:set("focus", 1) end
-   elseif x == 1 and y == 7 then
-      if z == 1 then params:set("focus", 2) end
    elseif x == 1 and y == 8 then
-      if z == 1 then params:set("focus", 3) end
+      if z == 1 then shift_held = not shift_held end
    else
-      if not hold then play_note(x, y, z) else hold_note(x, y, z) end
+      if x >= math.max(1, 7 - y) then
+         if not hold then play_note(x, y, z) else hold_note(x, y, z) end
+      end
    end
 end
 
@@ -631,9 +630,10 @@ function redraw_grid()
    -- coll 1 off
    g:led(1, 1, 4)   -- hold off → visible but dim
    g:led(1, 2, 4)   -- loop off → visible but dim
-   for n = 6, 8 do 
-      g:led(1, n, 0)   -- fokus off → off
+   for n = 6, 7 do 
+      g:led(1, n, 0)   -- unused for now → off
    end
+   g:led(1, 8, shift_held and 14 or 0)  -- shift button
 
    -- tonic notes at level 2, only within keyboard diagonal area
    for x = 2, 16 do
@@ -661,7 +661,6 @@ function redraw_grid()
    if Harvest.poly_hold == 1 then g:led(1, 1, 10) end 
    if Harvest.poly_loop == 1 then g:led(1, 2, 10) end 
    g:led(1, 6 - oct, 5)
-   g:led(1, 5 + focus, 5)
 
    g:refresh()
 end

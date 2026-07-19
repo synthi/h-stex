@@ -17,7 +17,7 @@ Engine_Harvest : CroneEngine {
    var pedalSostenutoOn = false;
    var pedalSustainNotes;
    var pedalSostenutoNotes;
-   var harvestPolyphonyMax = 8;
+   var harvestPolyphonyMax = 12;
    var harvestPolyphonyCount = 0;
 
    *new { arg context, doneCallback;
@@ -36,7 +36,7 @@ Engine_Harvest : CroneEngine {
          "loop"->0.0,
          "shape"->0.1,
          "max_attack"->1,
-         "max_release"->20,
+         "max_release"->24,
          "scale"->1,
       ]);
       harvestVoices = Dictionary.new;

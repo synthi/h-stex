@@ -231,14 +231,24 @@ function Harvest.init(midicontrol)
 -- noter
    params:add_separator("poly_noter", "NOTER")
 
+   local function sigmoid_map(val)
+      local k = 12
+      local c = 0.93
+      local sig = function(v) return 1 / (1 + math.exp(-k * (v - c))) end
+      local s0 = sig(0)
+      local s1 = sig(1)
+      local sn = (sig(val) - s0) / (s1 - s0)
+      return 0.001 + (24 - 0.001) * sn
+   end
+
    params:add{
       type        = "control",
       id          = "poly_max_attack",
       name        = "Vekst",
-      controlspec = controlspec.new(0.001, 20, "exp", 0.001, 1, "s"),
+      controlspec = controlspec.new(0, 1, "lin", 0.001, 0.5),
       action      = function(x)
-         engine.harvest_poly_set("max_attack", x)
-			-- Harvest.poly_max_attack = math.log(x / 0.001) / math.log(20 / 0.001)
+         local val = sigmoid_map(x)
+         engine.harvest_poly_set("max_attack", val)
       end
    }
 
@@ -246,10 +256,10 @@ function Harvest.init(midicontrol)
       type        = "control",
       id          = "poly_max_release",
       name        = "Forfall",
-      controlspec = controlspec.new(0.001, 20, "exp", 0.001, 3, "s"),
+      controlspec = controlspec.new(0, 1, "lin", 0.001, 0.7),
       action      = function(x)
-         engine.harvest_poly_set("max_release", x)
-			-- Harvest.poly_max_release = math.log(x / 0.001) / math.log(20 / 0.001)
+         local val = sigmoid_map(x)
+         engine.harvest_poly_set("max_release", val)
       end
    }
    
