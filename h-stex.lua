@@ -357,14 +357,14 @@ function init()
                elseif i >= #arr - 1 then return arr[#arr]
                else return arr[i + 1] * (1 - frac) + arr[i + 2] * frac end
             end
-            local shape = params:get("poly_shape")
-            local scale_val = params:get("poly_scale")
-            local max_a = params:get("poly_max_attack")
-            local max_r = params:get("poly_max_release")
-            local idx = shape * 3
-            local attack = util.clamp(linselect(idx, {0.01, 0.01, max_a, max_a}) * scale_val, 0.01, max_a)
-            local release = util.clamp(linselect(idx, {0.01, max_r, max_r, 0.01}) * scale_val, 0.01, max_r)
-            local cycle_len = attack + release + 0.02
+             local shape = params:get("poly_shape")
+             local scale_val = params:get("poly_scale")
+             local max_a = Harvest.max_attack or 0.197
+             local max_r = Harvest.max_release or 1
+             local idx = shape * 3
+             local attack = util.clamp(linselect(idx, {0.01, 0.01, max_a, max_a}) * scale_val, 0.01, max_a)
+             local release = util.clamp(linselect(idx, {0.01, max_r, max_r, 0.01}) * scale_val, 0.01, max_r)
+             local cycle_len = attack + 2 * release
 
             for _, n in ipairs(saved.notes) do
                local offset = (n.timestamp or min_ts) - min_ts

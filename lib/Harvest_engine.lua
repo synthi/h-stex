@@ -249,6 +249,7 @@ function Harvest.init(midicontrol)
       action      = function(x)
          local val = sigmoid_map(x)
          engine.harvest_poly_set("max_attack", val)
+         Harvest.max_attack = val
       end
    }
 
@@ -260,6 +261,7 @@ function Harvest.init(midicontrol)
       action      = function(x)
          local val = sigmoid_map(x)
          engine.harvest_poly_set("max_release", val)
+         Harvest.max_release = val
       end
    }
    

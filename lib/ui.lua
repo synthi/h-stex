@@ -24,7 +24,7 @@ function UI.draw_popup()
       if util.time() > UI.popup.deadline then
          UI.popup.active = false
       else
-         screen.font_face(1)
+         screen.font_face(67)
          screen.font_size(8)
          screen.level(0)
          screen.rect(10, 50, 108, 12)
