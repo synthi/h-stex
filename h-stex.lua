@@ -1,6 +1,6 @@
 --
 --  A remake by Joaue Arias
---  v1.6 - Joaue Arias
+--  v1.7 - Joaue Arias
 --      .                   
 --                         
 --          .          .     
@@ -349,20 +349,26 @@ function init()
             -- sort by timestamp
             table.sort(saved.notes, function(a, b) return (a.timestamp or 0) < (b.timestamp or 0) end)
             local min_ts = saved.notes[1] and saved.notes[1].timestamp or 0
-            -- calculate cycle length for loop timing
+            -- calculate cycle length for loop timing (LinSelectX replica from SC)
+            local function linselect(idx, arr)
+               local i = math.floor(idx)
+               local frac = idx - i
+               if i < 0 then return arr[1]
+               elseif i >= #arr - 1 then return arr[#arr]
+               else return arr[i + 1] * (1 - frac) + arr[i + 2] * frac end
+            end
             local shape = params:get("poly_shape")
-            local scale = params:get("poly_scale")
-            local max_attack = params:get("poly_max_attack")
-            local max_release = params:get("poly_max_release")
-            local attack = util.clamp(0.01 * scale, 0.01, max_attack)
-            if shape > 0.33 then attack = util.clamp(max_attack * scale, 0.01, max_attack) end
-            local release = util.clamp(max_release * scale, 0.01, max_release)
-            if shape < 0.66 then release = 0.01 end
+            local scale_val = params:get("poly_scale")
+            local max_a = params:get("poly_max_attack")
+            local max_r = params:get("poly_max_release")
+            local idx = shape * 3
+            local attack = util.clamp(linselect(idx, {0.01, 0.01, max_a, max_a}) * scale_val, 0.01, max_a)
+            local release = util.clamp(linselect(idx, {0.01, max_r, max_r, 0.01}) * scale_val, 0.01, max_r)
             local cycle_len = attack + release + 0.02
 
             for _, n in ipairs(saved.notes) do
                local offset = (n.timestamp or min_ts) - min_ts
-               if cycle_len > 0.1 and saved.loop then
+               if saved.loop and cycle_len > 0.02 then
                   offset = offset % cycle_len
                end
                if offset < 0.02 then
@@ -442,26 +448,19 @@ function init()
          local p_obj = params:lookup_param(p_name)
          if not p_obj then return end
 
-         -- normalize midi value (1-127) to 0-1
-         local val_norm = util.linlin(0, 127, 0, 1, msg.val)
+          -- normalize midi value (0-127) to 0-1
+          local val_norm = util.clamp(msg.val / 127, 0, 1)
          local current_norm = params:get_raw(p_name)
 
-         -- controlspec mapping for display
-         local target_val = p_obj.controlspec:map(val_norm)
+         -- map through controlspec and back (ncoco pattern)
+         local target_real = p_obj.controlspec:map(val_norm)
+         local target_norm_check = p_obj.controlspec:unmap(target_real)
+         local diff = math.abs(target_norm_check - current_norm)
+
+         local target_val = target_real
          local current_val = params:get(p_name)
 
-         local fader_display
-         if p_name == "drone_freq" or p_name == "fx_peak_1" or p_name == "fx_peak_2" then
-            fader_display = string.format("%.0f Hz", target_val)
-         elseif p_name == "fx_time" then
-            fader_display = string.format("%.2f s", target_val)
-         elseif p_name == "poly_max_attack" or p_name == "poly_max_release" then
-            fader_display = string.format("%.2f s", target_val)
-         else
-            fader_display = string.format("%.2f", target_val)
-         end
-
-         local diff = math.abs(val_norm - current_norm)
+         local fader_display = p_obj:string()
 
          if not fader_latched[id] then
             if diff < 0.05 then
