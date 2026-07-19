@@ -1,6 +1,6 @@
 -- storage.lua
 -- persistent state for h-stex (notes, hold, loop, octave)
--- v1.0
+-- v1.1 — per-PSET storage
 
 local Storage = {}
 
@@ -8,7 +8,11 @@ local function state_path()
    return norns.state.data .. "host_state.data"
 end
 
--- Save current state to disk
+local function pset_path(number)
+   return _path.data .. "host/" .. string.format("%02d", number) .. "_state.data"
+end
+
+-- Save current state to disk (cleanup / global fallback)
 -- @param playing      table of active notes (each: {note, x, y, ...})
 -- @param hold         boolean (poly_hold state)
 -- @param loop         boolean (poly_loop state)
@@ -36,6 +40,48 @@ function Storage.load()
    local ok, data = pcall(tab.load, state_path())
    if ok and data then
       return data
+   end
+   return nil
+end
+
+-- Save state for a specific PSET number
+-- @param number       PSET number (1-based)
+-- @param playing      table of active notes
+-- @param hold         boolean
+-- @param loop         boolean
+-- @param oct          number
+-- @param oct_state_1  number
+-- @param oct_state_3  number
+function Storage.save_pset(number, playing, hold, loop, oct, oct_state_1, oct_state_3)
+   if not number then return end
+   if not util.file_exists(_path.data .. "host") then
+      util.make_dir(_path.data .. "host")
+   end
+   local data = {
+      notes        = {},
+      hold         = hold,
+      loop         = loop,
+      oct          = oct,
+      oct_state_1  = oct_state_1,
+      oct_state_3  = oct_state_3,
+   }
+   for _, n in ipairs(playing) do
+      table.insert(data.notes, {note = n.note, x = n.x, y = n.y})
+   end
+   tab.save(data, pset_path(number))
+end
+
+-- Load state for a specific PSET number
+-- @param number PSET number (1-based)
+-- @return table or nil
+function Storage.load_pset(number)
+   if not number then return nil end
+   local path = pset_path(number)
+   if util.file_exists(path) then
+      local ok, data = pcall(tab.load, path)
+      if ok and data then
+         return data
+      end
    end
    return nil
 end

@@ -1,6 +1,6 @@
 --
 --  A remake by Joaue Arias
---  v1.4 - Joaue Arias
+--  v1.5 - Joaue Arias
 --      .                   
 --                         
 --          .          .     
@@ -334,19 +334,42 @@ function init()
       end
    }
 
+   -- per-PSET state persistence (like ncoco)
+   params.action_write = function(filename, name, number)
+      Storage.save_pset(number, playing, hold, Harvest.poly_loop == 1, oct, oct_state_1, oct_state_3)
+   end
+   params.action_read = function(filename, silent, number)
+      stop_keys()
+      local saved = Storage.load_pset(number)
+      if saved then
+         oct = saved.oct or 2
+         oct_state_1 = saved.oct_state_1 or 0
+         oct_state_3 = saved.oct_state_3 or 0
+         if saved.hold then params:set("poly_hold", 2) end
+         if saved.loop then params:set("poly_loop", 2) end
+         if saved.notes then
+            for _, n in ipairs(saved.notes) do
+               if saved.hold then hold_note(n.x, n.y, 1, n.note) else play_note(n.x, n.y, 1, n.note) end
+            end
+         end
+      end
+   end
+
    if save_on_exit then params:read(norns.state.data .. "state.pset") end
 
-   -- restore saved state (notes, hold, loop, oct)
-   local saved = Storage.load()
-   if saved then
-      if saved.hold then params:set("poly_hold", 2) end
-      if saved.loop then params:set("poly_loop", 2) end
-      oct = saved.oct or 2
-      oct_state_1 = saved.oct_state_1 or 0
-      oct_state_3 = saved.oct_state_3 or 0
-      if saved.notes then
-         for _, n in ipairs(saved.notes) do
-            if not hold then play_note(n.x, n.y, 1, n.note) else hold_note(n.x, n.y, 1, n.note) end
+   -- restore from global state if no PSET data loaded
+   if #playing == 0 then
+      local saved = Storage.load()
+      if saved then
+         if saved.hold then params:set("poly_hold", 2) end
+         if saved.loop then params:set("poly_loop", 2) end
+         oct = saved.oct or 2
+         oct_state_1 = saved.oct_state_1 or 0
+         oct_state_3 = saved.oct_state_3 or 0
+         if saved.notes then
+            for _, n in ipairs(saved.notes) do
+               if saved.hold then hold_note(n.x, n.y, 1, n.note) else play_note(n.x, n.y, 1, n.note) end
+            end
          end
       end
    end
@@ -472,12 +495,18 @@ g.key = function(x, y, z)
    if x == 1 and y == 1 then
       if z == 1 then
          if shift_held then
-            sostenuto = not sostenuto
+            -- solo si hold está ON se activa/desactiva sostenuto
+            if params:get("poly_hold") == 2 then
+               sostenuto = not sostenuto
+            end
          elseif params:get("poly_hold") == 2 then
-            params:set("poly_hold", 1) 
+            -- hold ON → OFF (incluso desde sostenuto)
+            params:set("poly_hold", 1)
+            sostenuto = false
             stop_held()
          else
-            params:set("poly_hold", 2) 
+            -- hold OFF → ON
+            params:set("poly_hold", 2)
             for n = 1, #playing do
                playing[n].held = true
             end
@@ -777,7 +806,7 @@ function redraw_grid()
    local hold_brightness = (Harvest.poly_hold == 1) and 10 or 4
    if sostenuto then
       local wave = (math.sin(frame * 0.08) + 1) / 2
-      hold_brightness = 1 + math.floor((hold_brightness - 1) * (1 - wave) + 0.5)
+      hold_brightness = 4 + math.floor(6 * wave + 0.5)
    end
    g:led(1, 1, hold_brightness)
    g:led(1, 2, 4)   -- loop off → visible but dim

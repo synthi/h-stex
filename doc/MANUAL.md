@@ -1,7 +1,7 @@
 # HØST — Manual de Uso
 
 **Versión:** 1.5  
-**Autor:** Joaue Arias (basado en synthi)  
+**Autor:** Joaue Arias (basado en støy by inminetglow)  
 **Plataforma:** norns (compatible Pi 4B)  
 **Hardware:** Grid 16×8, 16n faders (MIDI), norns keys/encoders
 
