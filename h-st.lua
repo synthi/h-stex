@@ -628,21 +628,19 @@ function redraw_grid()
       for n = 1, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 8, background) end end
    end
    
-   -- coll 1 off
-   g:led(1, 1, background)
-   g:led(1, 2, background)
+   -- coll 1 off (always level 0, not background)
+   g:led(1, 1, 0)
+   g:led(1, 2, 0)
    for n = 6, 8 do 
-      g:led(1, n, background)
+      g:led(1, n, 0)
    end
 
-   -- tonic notes at level 5 (BEFORE played notes, so played notes override tonic)
-   if current_scale ~= "Chromatic" then
-      for x = 2, 16 do
-         for y = 1, 8 do
-            local n = xy_to_note(x, y)
-            if (n % 12) == scale_root then
-               g:led(x, y, 5)
-            end
+   -- tonic notes at level 2 (all scales, including Chromatic)
+   for x = 2, 16 do
+      for y = 1, 8 do
+         local n = xy_to_note(x, y)
+         if (n % 12) == scale_root then
+            g:led(x, y, 2)
          end
       end
    end

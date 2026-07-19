@@ -67,10 +67,11 @@ El grid funciona como un teclado musical:
 | Elemento | Nivel LED | Descripción |
 |----------|-----------|-------------|
 | Fondo de teclas activas | 1 | Patrón diagonal original (escalonado) |
-| Tónica de la escala | 5 | Nota raíz de la escala (más brillante) |
+| Tónica de la escala | 2 | Nota raíz de la escala (sutil) |
 | Nota pulsada | 10 | Nota que está sonando actualmente (sobrescribe a la tónica) |
-| Sombra proyectada | 0 | Apagada (pero aún marca la dirección de las notas activas) |
-| Columna 1 — indicadores | 5/10 | Estado de hold, loop, octava, fokus |
+| Sombra proyectada | 0 | Apagada (marca la dirección de las notas activas) |
+| Columna 1 — apagado | 0 | Botones de control en estado off |
+| Columna 1 — activo | 5/10 | Estado de hold, loop, octava, fokus |
 
 ---
 
