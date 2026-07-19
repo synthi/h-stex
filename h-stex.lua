@@ -32,7 +32,7 @@ local  intensity = 8
 local  particles = {}
 local    density = 96
 
-local      focus = 1
+local      focus = 3
 local prev_focus = 1
 
 local    playing = {}
@@ -310,7 +310,7 @@ function init()
 
    params:bang()
 
-   params:set("focus", 1)
+   params:set("focus", 3)
 end
 
 -- norns: keys
@@ -431,7 +431,6 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 function redraw()
-   print("redraw ok", focus)
    s.clear()
    
    if splash then
@@ -541,9 +540,6 @@ function redraw()
    end
 
    if focus == 3 then -- Lys
-      local offset_1 = 64 * Harvest.fx_peak_1
-      local offset_2 = 64 * Harvest.fx_peak_2
-
       -- light
       s.level(7)
       s.rect(0, 0, 128, 64)
@@ -602,7 +598,6 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 function redraw_grid()
-   print("grid ok")
    local background = 1
    g:all(0)
 
