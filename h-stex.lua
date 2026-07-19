@@ -1,6 +1,6 @@
 --
 --  A remake by Joaue Arias
---  v1.3 - Joaue Arias
+--  v1.4 - Joaue Arias
 --      .                   
 --                         
 --          .          .     
@@ -17,6 +17,7 @@
 engine.name = "Harvest"
     Harvest = include("lib/Harvest_engine")
         tab = require("tabutil")
+    Storage = include("lib/storage")
 
 local save_on_exit = true
 
@@ -250,7 +251,7 @@ function init()
       type = "group",
       id   = "harvest",
       name = "HØST",
-      n    = 30
+      n    = 31
    }
 
    params:add{
@@ -290,6 +291,19 @@ function init()
       end
    }
 
+   -- root note selector
+   local root_names = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"}
+   params:add{
+      type        = "option",
+      id          = "root_note",
+      name        = "Root Note",
+      options     = root_names,
+      default     = 1,
+      action      = function(x)
+         scale_root = x - 1
+      end
+   }
+
    params:add{
       type        = "option",
       id          = "poly_hold",
@@ -307,6 +321,19 @@ function init()
    }
 
    if save_on_exit then params:read(norns.state.data .. "state.pset") end
+
+   -- restore saved state (notes, hold, loop, oct)
+   local saved = Storage.load()
+   if saved then
+      if saved.hold then params:set("poly_hold", 2) end
+      if saved.loop then params:set("poly_loop", 2) end
+      oct = saved.oct or 2
+      if saved.notes then
+         for _, n in ipairs(saved.notes) do
+            if not hold then play_note(n.x, n.y, 1, n.note) else hold_note(n.x, n.y, 1, n.note) end
+         end
+      end
+   end
 
    params:bang()
 
@@ -368,9 +395,9 @@ g.key = function(x, y, z)
    elseif x == 1 and y == 5 then
       if z == 1 then oct = 1 end
    elseif x == 1 and y == 8 then
-      if z == 1 then shift_held = not shift_held end
+      shift_held = (z == 1)
    else
-      if x >= math.max(1, 7 - y) then
+      if y <= 7 and x >= math.max(1, 7 - y) then
          if not hold then play_note(x, y, z) else hold_note(x, y, z) end
       end
    end
@@ -601,7 +628,7 @@ function redraw_grid()
    local background = 1
    g:all(0)
 
-   -- background (diagonal pattern = original design)
+   -- background (diagonal pattern = original design, rows 1-7 only)
    if current_scale == "Chromatic" then
       for n = 6, 16 do g:led(n, 1, background) end
       for n = 5, 16 do g:led(n, 2, background) end
@@ -610,7 +637,6 @@ function redraw_grid()
       for n = 2, 16 do g:led(n, 5, background) end
       for n = 1, 16 do g:led(n, 6, background) end
       for n = 1, 16 do g:led(n, 7, background) end
-      for n = 1, 16 do g:led(n, 8, background) end
    else
       -- same diagonal but only light columns within scale pattern
       local steps = #scales[current_scale]
@@ -621,24 +647,22 @@ function redraw_grid()
       for n = 2, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 5, background) end end
       for n = 1, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 6, background) end end
       for n = 1, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 7, background) end end
-      for n = 1, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 8, background) end end
    end
    
-   -- coll 1 off
+   -- coll 1
    g:led(1, 1, 4)   -- hold off → visible but dim
    g:led(1, 2, 4)   -- loop off → visible but dim
-   for n = 6, 7 do 
-      g:led(1, n, 0)   -- unused for now → off
-   end
-   g:led(1, 8, shift_held and 14 or 0)  -- shift button
+   g:led(1, 6, background)  -- background for playable area
+   g:led(1, 7, background)  -- background for playable area
+   g:led(1, 8, shift_held and 14 or 5)  -- shift button
 
-   -- tonic notes at level 2, only within keyboard diagonal area
+   -- tonic notes at level 3, only within keyboard diagonal area (rows 1-7)
    for x = 2, 16 do
-      for y = 1, 8 do
+      for y = 1, 7 do
          if x >= math.max(1, 7 - y) then
             local n = xy_to_note(x, y)
             if (n % 12) == scale_root then
-               g:led(x, y, 2)
+               g:led(x, y, 3)
             end
          end
       end
@@ -780,6 +804,7 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 function cleanup()
+   Storage.save(playing, hold, Harvest.poly_loop == 1, oct)
    stop_keys()
    if save_on_exit then params:write(norns.state.data .. "state.pset") end
 end
