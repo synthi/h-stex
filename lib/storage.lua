@@ -1,6 +1,6 @@
 -- storage.lua
 -- persistent state for h-stex (notes, hold, loop, octave)
--- v1.1 — per-PSET storage
+-- v1.2 — per-PSET storage with timestamps
 
 local Storage = {}
 
@@ -13,23 +13,19 @@ local function pset_path(number)
 end
 
 -- Save current state to disk (cleanup / global fallback)
--- @param playing      table of active notes (each: {note, x, y, ...})
+-- @param playing      table of active notes (each: {note, x, y, timestamp, ...})
 -- @param hold         boolean (poly_hold state)
 -- @param loop         boolean (poly_loop state)
--- @param oct          number (current octave)
--- @param oct_state_1  number (0-2, left oct button cycle)
--- @param oct_state_3  number (0-2, right oct button cycle)
-function Storage.save(playing, hold, loop, oct, oct_state_1, oct_state_3)
+-- @param oct          number (current octave 0..4)
+function Storage.save(playing, hold, loop, oct)
    local data = {
-      notes        = {},
-      hold         = hold,
-      loop         = loop,
-      oct          = oct,
-      oct_state_1  = oct_state_1,
-      oct_state_3  = oct_state_3,
+      notes = {},
+      hold  = hold,
+      loop  = loop,
+      oct   = oct,
    }
    for _, n in ipairs(playing) do
-      table.insert(data.notes, {note = n.note, x = n.x, y = n.y})
+      table.insert(data.notes, {note = n.note, x = n.x, y = n.y, timestamp = n.timestamp})
    end
    tab.save(data, state_path())
 end
@@ -49,24 +45,20 @@ end
 -- @param playing      table of active notes
 -- @param hold         boolean
 -- @param loop         boolean
--- @param oct          number
--- @param oct_state_1  number
--- @param oct_state_3  number
-function Storage.save_pset(number, playing, hold, loop, oct, oct_state_1, oct_state_3)
+-- @param oct          number (0..4)
+function Storage.save_pset(number, playing, hold, loop, oct)
    if not number then return end
    if not util.file_exists(_path.data .. "host") then
       util.make_dir(_path.data .. "host")
    end
    local data = {
-      notes        = {},
-      hold         = hold,
-      loop         = loop,
-      oct          = oct,
-      oct_state_1  = oct_state_1,
-      oct_state_3  = oct_state_3,
+      notes = {},
+      hold  = hold,
+      loop  = loop,
+      oct   = oct,
    }
    for _, n in ipairs(playing) do
-      table.insert(data.notes, {note = n.note, x = n.x, y = n.y})
+      table.insert(data.notes, {note = n.note, x = n.x, y = n.y, timestamp = n.timestamp})
    end
    tab.save(data, pset_path(number))
 end

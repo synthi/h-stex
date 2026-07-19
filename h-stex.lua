@@ -1,6 +1,6 @@
 --
 --  A remake by Joaue Arias
---  v1.5 - Joaue Arias
+--  v1.6 - Joaue Arias
 --      .                   
 --                         
 --          .          .     
@@ -49,9 +49,8 @@ local       hold = false
 local   shift_held = false
 local  sostenuto = false
 local        oct = 2
-local oct_state_1 = 0
-local oct_state_3 = 0
 local fader_latched = {}
+local pending_notes = {}
 for i = 1, 16 do fader_latched[i] = false end
 local      trail = 8
 
@@ -182,7 +181,7 @@ local function play_note(x, y, z, note)
          engine.harvest_note_off(playing[1].note + playing[1].transpose)
          table.remove(playing, 1)
       end
-      table.insert(playing, {note = note, transpose = transpose, x = x, y = y, held = false})
+      table.insert(playing, {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time()})
       engine.harvest_note_on(note + transpose, velocity, duration)
    else
       for i, v in pairs(playing) do
@@ -213,7 +212,7 @@ local function hold_note(x, y, z, note)
             engine.harvest_note_off(playing[1].note + playing[1].transpose)
             table.remove(playing, 1)
          end
-         table.insert(playing, {note = note, transpose = transpose, x = x, y = y, held = false})
+         table.insert(playing, {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time()})
          engine.harvest_note_on(note + transpose, velocity, duration)
       end
    else
@@ -336,20 +335,55 @@ function init()
 
    -- per-PSET state persistence (like ncoco)
    params.action_write = function(filename, name, number)
-      Storage.save_pset(number, playing, hold, Harvest.poly_loop == 1, oct, oct_state_1, oct_state_3)
+      Storage.save_pset(number, playing, hold, Harvest.poly_loop == 1, oct)
    end
    params.action_read = function(filename, silent, number)
       stop_keys()
+      pending_notes = {}
       local saved = Storage.load_pset(number)
       if saved then
          oct = saved.oct or 2
-         oct_state_1 = saved.oct_state_1 or 0
-         oct_state_3 = saved.oct_state_3 or 0
          if saved.hold then params:set("poly_hold", 2) end
          if saved.loop then params:set("poly_loop", 2) end
          if saved.notes then
+            -- sort by timestamp
+            table.sort(saved.notes, function(a, b) return (a.timestamp or 0) < (b.timestamp or 0) end)
+            local min_ts = saved.notes[1] and saved.notes[1].timestamp or 0
+            -- calculate cycle length for loop timing
+            local shape = params:get("poly_shape")
+            local scale = params:get("poly_scale")
+            local max_attack = params:get("poly_max_attack")
+            local max_release = params:get("poly_max_release")
+            local attack = util.clamp(0.01 * scale, 0.01, max_attack)
+            if shape > 0.33 then attack = util.clamp(max_attack * scale, 0.01, max_attack) end
+            local release = util.clamp(max_release * scale, 0.01, max_release)
+            if shape < 0.66 then release = 0.01 end
+            local cycle_len = attack + release + 0.02
+
             for _, n in ipairs(saved.notes) do
-               if saved.hold then hold_note(n.x, n.y, 1, n.note) else play_note(n.x, n.y, 1, n.note) end
+               local offset = (n.timestamp or min_ts) - min_ts
+               if cycle_len > 0.1 and saved.loop then
+                  offset = offset % cycle_len
+               end
+               if offset < 0.02 then
+                  if saved.hold then hold_note(n.x, n.y, 1, n.note) else play_note(n.x, n.y, 1, n.note) end
+               else
+                  table.insert(pending_notes, {note = n.note, x = n.x, y = n.y, held = saved.hold, offset = offset, fire_time = util.time() + offset})
+                  clock.run(function()
+                     clock.sleep(offset)
+                     for i = #pending_notes, 1, -1 do
+                        if pending_notes[i] and pending_notes[i].x == n.x and pending_notes[i].y == n.y then
+                           if pending_notes[i].held then
+                              hold_note(n.x, n.y, 1, n.note)
+                           else
+                              play_note(n.x, n.y, 1, n.note)
+                           end
+                           table.remove(pending_notes, i)
+                           break
+                        end
+                     end
+                  end)
+               end
             end
          end
       end
@@ -358,14 +392,12 @@ function init()
    if save_on_exit then params:read(norns.state.data .. "state.pset") end
 
    -- restore from global state if no PSET data loaded
-   if #playing == 0 then
+   if #playing == 0 and #pending_notes == 0 then
       local saved = Storage.load()
       if saved then
          if saved.hold then params:set("poly_hold", 2) end
          if saved.loop then params:set("poly_loop", 2) end
          oct = saved.oct or 2
-         oct_state_1 = saved.oct_state_1 or 0
-         oct_state_3 = saved.oct_state_3 or 0
          if saved.notes then
             for _, n in ipairs(saved.notes) do
                if saved.hold then hold_note(n.x, n.y, 1, n.note) else play_note(n.x, n.y, 1, n.note) end
@@ -523,30 +555,14 @@ g.key = function(x, y, z)
    elseif x == 1 and y == 8 then
       shift_held = (z == 1)
    elseif y == 8 and x == 2 and z == 1 then
-      -- botón 1: ciclo 0 (-1) -> 1 (-2) -> 2 (back to 0)
-      oct_state_1 = (oct_state_1 + 1) % 3
-      if oct_state_1 == 0 then
-         oct = 2
-      elseif oct_state_1 == 1 then
-         oct = 1
-      else
-         oct = 0
-      end
+      -- botón izquierdo: baja una octava (-2 → -1 → 0 → +1 → +2)
+      oct = math.max(0, oct - 1)
    elseif y == 8 and x == 3 and z == 1 then
-      -- botón 2: siempre octava base
-      oct = 2
-      oct_state_1 = 0
-      oct_state_3 = 0
+      -- botón centro: acerca al centro (0 = oct 2)
+      if oct < 2 then oct = oct + 1 elseif oct > 2 then oct = oct - 1 end
    elseif y == 8 and x == 4 and z == 1 then
-      -- botón 3: ciclo 0 (+1) -> 1 (+2) -> 2 (back to 0)
-      oct_state_3 = (oct_state_3 + 1) % 3
-      if oct_state_3 == 0 then
-         oct = 2
-      elseif oct_state_3 == 1 then
-         oct = 3
-      else
-         oct = 4
-      end
+      -- botón derecho: sube una octava
+      oct = math.min(4, oct + 1)
    else
       if y <= 7 and x >= math.max(1, 7 - y) then
          if not hold or sostenuto then play_note(x, y, z) else hold_note(x, y, z) end
@@ -839,25 +855,30 @@ function redraw_grid()
       g:led(playing[n].x, playing[n].y, 10)
    end
 
-   -- col 1 on
-   if Harvest.poly_loop == 1 then g:led(1, 2, 10) end 
-   -- octave LEDs in row 8 with multi-tap blink
-   local oct_wave = (math.sin(frame * 0.10) + 1) / 2
-   local oct_led_1 = 0
-   local oct_led_2 = (oct == 2 and oct_state_1 == 0 and oct_state_3 == 0) and 5 or 0
-   local oct_led_3 = 0
-
-   -- botón 2 (x=2): fijo en -1, parpadeo 6↔2 en -2
-   if oct == 1 and oct_state_1 == 1 then
-      oct_led_1 = 5
-   elseif oct == 0 and oct_state_1 == 2 then
-      oct_led_1 = 2 + math.floor(4 * oct_wave + 0.5)
+   -- pending notes blink (1↔6 fast)
+   local pending_wave = (math.sin(frame * 0.20) + 1) / 2
+   for _, pn in ipairs(pending_notes) do
+      g:led(pn.x, pn.y, 1 + math.floor(5 * pending_wave + 0.5))
    end
-   -- botón 4 (x=4): fijo en +1, parpadeo 6↔2 en +2
-   if oct == 3 and oct_state_3 == 1 then
-      oct_led_3 = 5
-   elseif oct == 4 and oct_state_3 == 2 then
-      oct_led_3 = 2 + math.floor(4 * oct_wave + 0.5)
+
+   -- col 1 on
+   if Harvest.poly_loop == 1 then g:led(1, 2, 10) end
+   -- octave LEDs in row 8 (linear 0..4: -2,-1,0,+1,+2)
+   local oct_wave = (math.sin(frame * 0.10) + 1) / 2
+   local oct_led_1 = 0  -- x=2 (left)
+   local oct_led_2 = 0  -- x=3 (center)
+   local oct_led_3 = 0  -- x=4 (right)
+
+   if oct == 0 then
+      oct_led_1 = 2 + math.floor(4 * oct_wave + 0.5)  -- -2: blink 6↔2
+   elseif oct == 1 then
+      oct_led_1 = 5  -- -1: fixed
+   elseif oct == 2 then
+      oct_led_2 = 5  -- 0: center fixed
+   elseif oct == 3 then
+      oct_led_3 = 5  -- +1: fixed
+   elseif oct == 4 then
+      oct_led_3 = 2 + math.floor(4 * oct_wave + 0.5)  -- +2: blink 6↔2
    end
 
    g:led(2, 8, oct_led_1)
@@ -985,7 +1006,7 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 function cleanup()
-   Storage.save(playing, hold, Harvest.poly_loop == 1, oct, oct_state_1, oct_state_3)
+   Storage.save(playing, hold, Harvest.poly_loop == 1, oct)
    stop_keys()
    if save_on_exit then params:write(norns.state.data .. "state.pset") end
 end

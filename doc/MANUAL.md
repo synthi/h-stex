@@ -57,9 +57,9 @@ Al iniciar el script, el Fokus default es **Lys (3)**.
 | Posición | Función |
 |----------|---------|
 | (1,8) | **Shift** — Botón momentáneo |
-| (2,8) | **Octava -** — 1er tap: -1 oct (LED 5), 2º tap: -2 oct (LED parpadea 6↔2), 3er tap: vuelve a 0 |
-| (3,8) | **Octava 0** — Siempre vuelve a octava base (LED 5 fijo) |
-| (4,8) | **Octava +** — 1er tap: +1 oct (LED 5), 2º tap: +2 oct (LED parpadea 6↔2), 3er tap: vuelve a 0 |
+| (2,8) | **Octava -** — Baja una octava (-2, -1, 0, +1, +2). No salta |
+| (3,8) | **Octava centro** — Acerca al centro (0). Del lado que estés, un paso hacia 0 |
+| (4,8) | **Octava +** — Sube una octava. No salta |
 | (5-16,8) | Sin función (apagado) |
 
 ### Columnas 2-16 — Teclado (filas 1-7)
@@ -89,7 +89,8 @@ El grid funciona como un teclado musical:
 | Shift (1,8) pulsado | 14 | Brillo alto momentáneo |
 | Octava activa (2-4,8) | 5 | Octava seleccionada en fila 8 |
 | Hold con Sostenuto | 1→10 | Parpadeo suave entre nivel 1 y nivel base |
-| Octava extendida | 2↔6 | Parpadeo medio en -2/+2 octavas |
+| Octava extendida | 2↔6 | Parpadeo medio en -2 o +2 octavas |
+| Nota pendiente (PSET) | 1↔6 | Parpadeo rápido — nota programada que aún no suena |
 
 ---
 
