@@ -628,19 +628,21 @@ function redraw_grid()
       for n = 1, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 8, background) end end
    end
    
-   -- coll 1 off (always level 0, not background)
-   g:led(1, 1, 0)
-   g:led(1, 2, 0)
+   -- coll 1 off
+   g:led(1, 1, 4)   -- hold off → visible but dim
+   g:led(1, 2, 4)   -- loop off → visible but dim
    for n = 6, 8 do 
-      g:led(1, n, 0)
+      g:led(1, n, 0)   -- fokus off → off
    end
 
-   -- tonic notes at level 2 (all scales, including Chromatic)
+   -- tonic notes at level 2, only within keyboard diagonal area
    for x = 2, 16 do
       for y = 1, 8 do
-         local n = xy_to_note(x, y)
-         if (n % 12) == scale_root then
-            g:led(x, y, 2)
+         if x >= math.max(1, 7 - y) then
+            local n = xy_to_note(x, y)
+            if (n % 12) == scale_root then
+               g:led(x, y, 2)
+            end
          end
       end
    end
