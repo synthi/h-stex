@@ -1,6 +1,6 @@
 --
 --  A remake by Joaue Arias
---  v1.7 - Joaue Arias
+--  v1.8 - Joaue Arias
 --      .                   
 --                         
 --          .          .     

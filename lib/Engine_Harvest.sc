@@ -110,6 +110,7 @@ Engine_Harvest : CroneEngine {
          freq = \freq.kr(100, 0.1);
          noise = \noise.kr(0.0, 0.1);
          timbre = \timbre.kr(0.5, 0.1);
+         drift = \drift.kr(0.0, 0.1);
 
          freq = WhiteNoise.ar(noise) * freq + freq;
          freq = freq.clip(0, SampleRate.ir * 0.5);
@@ -135,7 +136,6 @@ Engine_Harvest : CroneEngine {
          max_attack = \max_attack.kr(1, 0.1);
          max_release = \max_release.kr(3, 0.1);
          scale = \scale.kr(1, 0.1);
-         drift = \drift.kr(0.0, 0.1);
 
          attack  = (LinSelectX.kr(shape * 3, [0.01, 0.01, max_attack, max_attack]) * scale).clip(0.01, max_attack);
          release = (LinSelectX.kr(shape * 3, [0.01, max_release, max_release, 0.01]) * scale).clip(0.01, max_release);
