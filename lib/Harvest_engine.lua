@@ -283,7 +283,7 @@ function Harvest.init(midicontrol)
       type        = "control",
       id          = "poly_drift",
       name        = "Avdrift",
-      controlspec = controlspec.new(0, 1, "lin", 0.001, 0),
+      controlspec = controlspec.new(0, 1, "lin", 0.001, 0.15),
       action      = function(x)
          engine.harvest_poly_set("drift", x)
          Harvest.poly_drift = x

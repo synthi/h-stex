@@ -475,7 +475,12 @@ function init()
          local target_val = target_real
          local current_val = params:get(p_name)
 
-         local fader_display = p_obj:string()
+         local fader_display
+         if p_name == "poly_max_attack" or p_name == "poly_max_release" then
+            fader_display = string.format("%.2f s", target_val)
+         else
+            fader_display = p_obj:string()
+         end
 
          if not fader_latched[id] then
             if diff < 0.05 then
@@ -501,6 +506,9 @@ function init()
             if diff > 0.15 then
                fader_latched[id] = false
             else
+               if p_name == "fx_body" then
+                  target_val = util.clamp(target_val, 0, 1)
+               end
                params:set(p_name, target_val)
                UI.show_popup(p_obj.name, fader_display, 1.5)
             end
