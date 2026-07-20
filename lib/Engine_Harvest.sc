@@ -1,7 +1,7 @@
 // Engine_harvest
 // a part of Høst
 //
-// v1.1
+// v1.2 
 // imminent gloom
 
 Engine_Harvest : CroneEngine {
@@ -29,6 +29,7 @@ Engine_Harvest : CroneEngine {
       // initialize variables
       harvestParameters = Dictionary.with(*[
          "amp"->0.8,
+         "drift"->0.0,
          "timbre"->0.2,
          "noise"->0.3,
          "bias"->0.6,
@@ -103,7 +104,7 @@ Engine_Harvest : CroneEngine {
       }).add;
 
       SynthDef(\harvestpoly, {
-         var amp, freq, noise, timbre, pulsewidth, sine, saw, square, waveform, bias, threshold, min, vel, gate, loop, shape, scale, max_attack, max_release, attack, release, curve, asr, ararar, env, lpg;
+         var amp, freq, noise, timbre, pulsewidth, sine, saw, square, waveform, bias, threshold, min, vel, gate, loop, shape, scale, drift, max_attack, max_release, attack, release, curve, asr, ararar, env, lpg;
 
          amp = \amp.kr(0.8, 0.1);
          freq = \freq.kr(100, 0.1);
@@ -112,6 +113,7 @@ Engine_Harvest : CroneEngine {
 
          freq = WhiteNoise.ar(noise) * freq + freq;
          freq = freq.clip(0, SampleRate.ir * 0.5);
+         freq = freq * (2 ** ((LFNoise2.kr(0.01) * drift * (6/1200)) + (LFNoise2.kr(3.1) * drift * (3/1200))));
 
          pulsewidth = LinSelectX.kr(timbre * 2, [0.001, 0.5, 1]);
          
@@ -132,7 +134,8 @@ Engine_Harvest : CroneEngine {
          shape =     \shape.kr(0.1, 0.1);
          max_attack = \max_attack.kr(1, 0.1);
          max_release = \max_release.kr(3, 0.1);
-         scale =        \scale.kr(1, 0.1);
+         scale = \scale.kr(1, 0.1);
+         drift = \drift.kr(0.0, 0.1);
 
          attack  = (LinSelectX.kr(shape * 3, [0.01, 0.01, max_attack, max_attack]) * scale).clip(0.01, max_attack);
          release = (LinSelectX.kr(shape * 3, [0.01, max_release, max_release, 0.01]) * scale).clip(0.01, max_release);
@@ -191,7 +194,8 @@ Engine_Harvest : CroneEngine {
                \loop, harvestParameters.at("loop"),
                \max_attack, harvestParameters.at("max_attack"),
                \max_release, harvestParameters.at("max_release"),
-               \scale, harvestParameters.at("scale")
+               \scale, harvestParameters.at("scale"),
+               \drift, harvestParameters.at("drift")
             ]);
          );
          NodeWatcher.register(harvestVoices.at(note));

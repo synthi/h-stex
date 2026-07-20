@@ -282,7 +282,7 @@ function init()
       type = "group",
       id   = "harvest",
       name = "HØST",
-      n    = 31
+      n    = 32
    }
 
    params:add{
