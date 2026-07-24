@@ -1,6 +1,6 @@
 --
 --  A remake by Joaue Arias
---  v2.0 - Joaue Arias
+--  v2.1 - Støy EX
 --      .                   
 --                         
 --          .          .     
@@ -348,10 +348,13 @@ local function run_sequencer(id)
          if s.playhead >= s.duration then
             for _, e in ipairs(s.data) do
                if e.dt >= old_head or e.dt < s.playhead - s.duration then
-                  if e.y == 8 and e.x >= 6 and e.x <= 9 and e.z == 1 then
-                     local snap_id = e.x - 5
-                     if drone_snaps[snap_id] == nil then drone_snap_save(snap_id)
-                     else drone_snap_load(snap_id) end
+                  if e.y == 8 and e.x >= 6 and e.x <= 9 then
+                     if e.z == 1 then
+                        local snap_id = e.x - 5
+                        if drone_snaps[snap_id] == nil then drone_snap_save(snap_id)
+                        else drone_snap_load(snap_id) end
+                     end
+                     -- z==0 for snapshots: no-op (ignore release)
                   else
                      play_note(e.x, e.y, e.z, e.note, true)
                   end
@@ -360,10 +363,12 @@ local function run_sequencer(id)
             s.playhead = s.playhead % s.duration
             for _, e in ipairs(s.data) do
                if e.dt < s.playhead then
-                  if e.y == 8 and e.x >= 6 and e.x <= 9 and e.z == 1 then
-                     local snap_id = e.x - 5
-                     if drone_snaps[snap_id] == nil then drone_snap_save(snap_id)
-                     else drone_snap_load(snap_id) end
+                  if e.y == 8 and e.x >= 6 and e.x <= 9 then
+                     if e.z == 1 then
+                        local snap_id = e.x - 5
+                        if drone_snaps[snap_id] == nil then drone_snap_save(snap_id)
+                        else drone_snap_load(snap_id) end
+                     end
                   else
                      play_note(e.x, e.y, e.z, e.note, true)
                   end
@@ -372,10 +377,12 @@ local function run_sequencer(id)
          else
             for _, e in ipairs(s.data) do
                if e.dt >= old_head and e.dt < s.playhead then
-                  if e.y == 8 and e.x >= 6 and e.x <= 9 and e.z == 1 then
-                     local snap_id = e.x - 5
-                     if drone_snaps[snap_id] == nil then drone_snap_save(snap_id)
-                     else drone_snap_load(snap_id) end
+                  if e.y == 8 and e.x >= 6 and e.x <= 9 then
+                     if e.z == 1 then
+                        local snap_id = e.x - 5
+                        if drone_snaps[snap_id] == nil then drone_snap_save(snap_id)
+                        else drone_snap_load(snap_id) end
+                     end
                   else
                      play_note(e.x, e.y, e.z, e.note, true)
                   end
@@ -728,6 +735,7 @@ end
 
 g.key = function(x, y, z)
    -- drone snapshot buttons (row 8, cols 6-9, ncoco-style)
+   -- no return here so sequencer recording block below can capture button presses
    if y == 8 and x >= 6 and x <= 9 then
       local id = x - 5
       if z == 1 then
@@ -740,7 +748,6 @@ g.key = function(x, y, z)
                drone_snap_timers[id] = -1
             end
          end)
-         return
       elseif z == 0 then
          if drone_snap_timers[id] == -1 then
             drone_snap_timers[id] = 0
@@ -748,16 +755,16 @@ g.key = function(x, y, z)
             local t = util.time() - (drone_snap_timers[id] or 0)
             drone_snap_timers[id] = 0
             if t < 1.6 then
-               if drone_snaps[id] == nil then
-                  drone_snap_save(id)
-               elseif active_drone_snap == id then
+               if shift_held then
                   drone_snap_update(id)
-               else
+               elseif drone_snaps[id] == nil then
+                  drone_snap_save(id)
+               elseif active_drone_snap ~= id then
                   drone_snap_load(id)
                end
+               -- if active and filled: do nothing (no save, no load)
             end
          end
-         return
       end
    end
 
