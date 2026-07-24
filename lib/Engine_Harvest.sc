@@ -66,7 +66,7 @@ Engine_Harvest : CroneEngine {
          delay = DelayC.ar(delay, 10, time);
          LocalOut.ar(delay);
 
-         mix = SelectX.ar(body * 6, [input, filter, filter + delay * 0.7, input + delay * 0.7, (input * 0.7 + filter * 0.5 + delay * 0.5), (input * 0.5 + filter * 0.7 + delay * 0.5), input]);
+         mix = SelectX.ar(body * 6, [input, filter, filter + delay * 0.7, input + delay * 0.7, (input * 0.7 + filter * 0.5 + delay * 0.5), (input * 0.55 + filter * 0.8 + delay * 0.55), input]);
 
          gain = \gain.kr(1, 0.1);
          dist = (mix * gain).tanh * (1 / gain.sqrt) * \amp.kr(0.5, 0.1);
