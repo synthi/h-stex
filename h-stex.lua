@@ -1,6 +1,6 @@
 --
 --  A remake by Joaue Arias
---  v1.9 - Joaue Arias
+--  v2.0 - Joaue Arias
 --      .                   
 --                         
 --          .          .     
@@ -61,6 +61,11 @@ for i = 1, 4 do
                     start_time = 0, duration = 0, double_click_timer = nil, press_time = 0}
 end
 local seq_clock_ids = {}
+
+-- drone snapshots (ncoco-style)
+local drone_snaps = {nil, nil, nil, nil}
+local active_drone_snap = 0
+local drone_snap_timers = {}
 
 local scales = {
    ["Chromatic"]        = {0,1,2,3,4,5,6,7,8,9,10,11},
@@ -181,7 +186,19 @@ local function xy_to_note(x, y)
    return note
 end
 
-local function play_note(x, y, z, note)
+-- reverse lookup: note -> grid position (all scales, keyboard area only)
+local function note_to_xy(n)
+   for y = 1, 7 do
+      for x = math.max(1, 7 - y), 16 do
+         if xy_to_note(x, y) == n then
+            return x, y
+         end
+      end
+   end
+   return nil, nil
+end
+
+local function play_note(x, y, z, note, seq_note)
    note = note or xy_to_note(x, y)
    transpose = 12 * oct
    if z == 1 then 
@@ -189,7 +206,7 @@ local function play_note(x, y, z, note)
          engine.harvest_note_off(playing[1].note + playing[1].transpose)
          table.remove(playing, 1)
       end
-      table.insert(playing, {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time()})
+      table.insert(playing, {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time(), seq_note = seq_note or false})
       engine.harvest_note_on(note + transpose, velocity, duration)
    else
       for i, v in pairs(playing) do
@@ -276,6 +293,46 @@ local function calc_cycle_len()
    return attack + release
 end
 
+-- drone snapshot helper functions (ncoco-style)
+local function drone_snap_capture()
+   return {
+      timbre = params:get("drone_timbre"),
+      noise  = params:get("drone_noise"),
+      bias   = params:get("drone_bias"),
+      freq   = params:get("drone_freq"),
+      drift  = params:get("drone_drift"),
+   }
+end
+local function drone_snap_apply(data)
+   if not data then return end
+   if data.timbre then params:set("drone_timbre", data.timbre) end
+   if data.noise  then params:set("drone_noise",  data.noise) end
+   if data.bias   then params:set("drone_bias",   data.bias) end
+   if data.freq   then params:set("drone_freq",   data.freq) end
+   if data.drift  then params:set("drone_drift",  data.drift) end
+end
+local function drone_snap_save(id)
+   drone_snaps[id] = drone_snap_capture()
+   active_drone_snap = id
+   UI.show_popup("DRONE SNAP " .. id, "SAVED", 1.5)
+end
+local function drone_snap_update(id)
+   drone_snaps[id] = drone_snap_capture()
+   UI.show_popup("DRONE SNAP " .. id, "UPDATED", 1.5)
+end
+local function drone_snap_load(id)
+   if drone_snaps[id] then
+      drone_snap_apply(drone_snaps[id])
+      active_drone_snap = id
+      UI.show_popup("DRONE SNAP " .. id, "LOADED", 1.5)
+   end
+end
+local function drone_snap_clear(id)
+   drone_snaps[id] = nil
+   if active_drone_snap == id then active_drone_snap = 0 end
+   UI.show_popup("DRONE SNAP " .. id, "CLEARED", 1.5)
+end
+
 -- sequencer playback engine (ported from ncoco)
 local function run_sequencer(id)
    local s = sequencers[id]
@@ -291,19 +348,37 @@ local function run_sequencer(id)
          if s.playhead >= s.duration then
             for _, e in ipairs(s.data) do
                if e.dt >= old_head or e.dt < s.playhead - s.duration then
-                  play_note(e.x, e.y, e.z)
+                  if e.y == 8 and e.x >= 6 and e.x <= 9 and e.z == 1 then
+                     local snap_id = e.x - 5
+                     if drone_snaps[snap_id] == nil then drone_snap_save(snap_id)
+                     else drone_snap_load(snap_id) end
+                  else
+                     play_note(e.x, e.y, e.z, e.note, true)
+                  end
                end
             end
             s.playhead = s.playhead % s.duration
             for _, e in ipairs(s.data) do
                if e.dt < s.playhead then
-                  play_note(e.x, e.y, e.z)
+                  if e.y == 8 and e.x >= 6 and e.x <= 9 and e.z == 1 then
+                     local snap_id = e.x - 5
+                     if drone_snaps[snap_id] == nil then drone_snap_save(snap_id)
+                     else drone_snap_load(snap_id) end
+                  else
+                     play_note(e.x, e.y, e.z, e.note, true)
+                  end
                end
             end
          else
             for _, e in ipairs(s.data) do
                if e.dt >= old_head and e.dt < s.playhead then
-                  play_note(e.x, e.y, e.z)
+                  if e.y == 8 and e.x >= 6 and e.x <= 9 and e.z == 1 then
+                     local snap_id = e.x - 5
+                     if drone_snaps[snap_id] == nil then drone_snap_save(snap_id)
+                     else drone_snap_load(snap_id) end
+                  else
+                     play_note(e.x, e.y, e.z, e.note, true)
+                  end
                end
             end
          end
@@ -408,7 +483,12 @@ function init()
 
    -- per-PSET state persistence (like ncoco)
    params.action_write = function(filename, name, number)
-      Storage.save_pset(number, playing, hold, Harvest.poly_loop == 1, oct, calc_cycle_len(), sequencers)
+      -- filter out sequencer-triggered notes (seq_note=true) so they don't get saved
+      local manual_playing = {}
+      for _, n in ipairs(playing) do
+         if not n.seq_note then table.insert(manual_playing, n) end
+      end
+      Storage.save_pset(number, manual_playing, hold, Harvest.poly_loop == 1, oct, calc_cycle_len(), sequencers, drone_snaps, active_drone_snap)
    end
    params.action_read = function(filename, silent, number)
       stop_keys()
@@ -460,7 +540,11 @@ function init()
                local ss = saved.sequencers[i]
                if ss then
                   sequencers[i].data = ss.data or {}
-                  sequencers[i].state = ss.state or 0
+                  if ss.data and #ss.data > 0 then
+                     sequencers[i].state = 3  -- stopped with data (like ncoco)
+                  else
+                     sequencers[i].state = 0
+                  end
                   sequencers[i].duration = ss.duration or 0
                   sequencers[i].playhead = 0
                   sequencers[i].last_cpu_time = util.time()
@@ -469,7 +553,28 @@ function init()
                   sequencers[i].press_time = 0
                end
             end
+         else
+            -- old PSET without sequencer data: reset all sequencers
+            for i = 1, 4 do
+               sequencers[i] = {data = {}, state = 0, playhead = 0, last_cpu_time = util.time(),
+                                start_time = 0, duration = 0, double_click_timer = nil, press_time = 0}
+            end
          end
+         -- restore drone snapshots (backward compatible)
+         if saved.drone_snaps then
+            drone_snaps = saved.drone_snaps
+         else
+            drone_snaps = {nil, nil, nil, nil}
+         end
+         active_drone_snap = saved.active_drone_snap or 0
+      else
+         -- no saved data at all: reset everything
+         for i = 1, 4 do
+            sequencers[i] = {data = {}, state = 0, playhead = 0, last_cpu_time = util.time(),
+                             start_time = 0, duration = 0, double_click_timer = nil, press_time = 0}
+         end
+         drone_snaps = {nil, nil, nil, nil}
+         active_drone_snap = 0
       end
    end
 
@@ -622,9 +727,43 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 g.key = function(x, y, z)
-   -- sequencer buttons (row 8, cols 6-9)
-   if y == 8 and x >= 6 and x <= 9 and z == 1 then
+   -- drone snapshot buttons (row 8, cols 6-9, ncoco-style)
+   if y == 8 and x >= 6 and x <= 9 then
       local id = x - 5
+      if z == 1 then
+         drone_snap_timers[id] = util.time()
+         clock.run(function()
+            local this_timer = drone_snap_timers[id]
+            clock.sleep(1.6)
+            if drone_snap_timers[id] == this_timer then
+               drone_snap_clear(id)
+               drone_snap_timers[id] = -1
+            end
+         end)
+         return
+      elseif z == 0 then
+         if drone_snap_timers[id] == -1 then
+            drone_snap_timers[id] = 0
+         else
+            local t = util.time() - (drone_snap_timers[id] or 0)
+            drone_snap_timers[id] = 0
+            if t < 1.6 then
+               if drone_snaps[id] == nil then
+                  drone_snap_save(id)
+               elseif active_drone_snap == id then
+                  drone_snap_update(id)
+               else
+                  drone_snap_load(id)
+               end
+            end
+         end
+         return
+      end
+   end
+
+   -- sequencer buttons (row 8, cols 12-15)
+   if y == 8 and x >= 12 and x <= 15 and z == 1 then
+      local id = x - 11
       local s = sequencers[id]
       s.press_time = util.time()
       if s.state == 0 then
@@ -649,15 +788,15 @@ g.key = function(x, y, z)
       end
       return
    end
-   if y == 8 and x >= 6 and x <= 9 and z == 0 then
-      local s = sequencers[x - 5]
+   if y == 8 and x >= 12 and x <= 15 and z == 0 then
+      local s = sequencers[x - 11]
       if util.time() - (s.press_time or 0) > 1.0 then
          s.state = 0; s.data = {}
       end
       return
    end
 
-   -- keyboard: record for active sequencers
+   -- keyboard: record for active sequencers (with note pitch stored)
    if (z == 1 or z == 0) and y <= 7 and x >= math.max(1, 7 - y) then
       for i = 1, 4 do
          local s = sequencers[i]
@@ -665,7 +804,21 @@ g.key = function(x, y, z)
             local dt = util.time() - s.start_time
             if s.state == 4 then dt = dt % s.duration end
             if #s.data < 10000 then
-               table.insert(s.data, {x = x, y = y, z = z, dt = dt})
+               table.insert(s.data, {x = x, y = y, z = z, dt = dt, note = xy_to_note(x, y), oct = oct})
+            end
+         end
+      end
+   end
+
+   -- record snapshot button presses for active sequencers
+   if y == 8 and x >= 6 and x <= 9 and (z == 1 or z == 0) then
+      for i = 1, 4 do
+         local s = sequencers[i]
+         if s.state == 1 or s.state == 4 then
+            local dt = util.time() - s.start_time
+            if s.state == 4 then dt = dt % s.duration end
+            if #s.data < 10000 then
+               table.insert(s.data, {x = x, y = y, z = z, dt = dt, note = nil, oct = 0})
             end
          end
       end
@@ -1026,9 +1179,20 @@ function redraw_grid()
    g:led(3, 8, oct_led_2)
    g:led(4, 8, oct_led_3)
 
-   -- sequencer LEDs (row 8, cols 6-9)
+   -- drone snapshot LEDs (row 8, cols 6-9, ncoco-style)
+   for i = 1, 4 do
+      local x = 5 + i
+      local b = 0
+      if drone_snap_timers[i] and drone_snap_timers[i] > 0 then b = 15
+      elseif active_drone_snap == i then b = 10
+      elseif drone_snaps[i] ~= nil then b = 6
+      else b = 2 end
+      g:led(x, 8, b)
+   end
+
+   -- sequencer LEDs (row 8, cols 12-15)
    for i = 0, 3 do
-      local x = 6 + i
+      local x = 12 + i
       local s = sequencers[i + 1]
       local b = 0
       if s.state == 0 then b = 2
