@@ -49,7 +49,7 @@ end
 -- @param loop         boolean
 -- @param oct          number (0..4)
 -- @param cycle_len    number (pre-calculated envelope cycle length for loop)
-function Storage.save_pset(number, playing, hold, loop, oct, cycle_len)
+function Storage.save_pset(number, playing, hold, loop, oct, cycle_len, sequencers)
    if not number then return end
    if not util.file_exists(_path.data .. "host") then
       util.make_dir(_path.data .. "host")
@@ -60,9 +60,20 @@ function Storage.save_pset(number, playing, hold, loop, oct, cycle_len)
       loop  = loop,
       oct   = oct,
       cycle_len = cycle_len or 0.02,
+      sequencers = {},
    }
    for _, n in ipairs(playing) do
       table.insert(data.notes, {note = n.note, x = n.x, y = n.y, timestamp = n.timestamp})
+   end
+   if sequencers then
+      for i = 1, 4 do
+         local s = sequencers[i]
+         data.sequencers[i] = {
+            data = s.data,
+            state = s.state,
+            duration = s.duration,
+         }
+      end
    end
    tab.save(data, pset_path(number))
 end
@@ -76,6 +87,17 @@ function Storage.load_pset(number)
    if util.file_exists(path) then
       local ok, data = pcall(tab.load, path)
       if ok and data then
+         if data.sequencers then
+            for i = 1, 4 do
+               local s = data.sequencers[i]
+               if s and s.data and #s.data > 0 then
+                  s.state = 3  -- stopped with data
+                  s.duration = s.duration or 0
+               else
+                  data.sequencers[i] = {data = {}, state = 0, duration = 0}
+               end
+            end
+         end
          return data
       end
    end

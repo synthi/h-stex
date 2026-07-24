@@ -71,6 +71,17 @@ function Harvest.init(midicontrol)
 
    params:add{
       type        = "control",
+      id          = "drone_drift",
+      name        = "Avdrift",
+      controlspec = controlspec.new(0, 1, "lin", 0.001, 0.11),
+      action      = function(x)
+         engine.harvest_drone_set("drift", x)
+         Harvest.drone_drift = x
+      end
+   }
+
+   params:add{
+      type        = "control",
       id          = "drone_freq",
       name        = "Frekvens",
       controlspec = controlspec.new(0.2, 2000, "exp", 0.001, 117, "hz"),

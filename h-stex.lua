@@ -1,6 +1,6 @@
 --
 --  A remake by Joaue Arias
---  v1.8 - Joaue Arias
+--  v1.9 - Joaue Arias
 --      .                   
 --                         
 --          .          .     
@@ -53,6 +53,14 @@ local fader_latched = {}
 local pending_notes = {}
 for i = 1, 16 do fader_latched[i] = false end
 local      trail = 8
+
+-- sequencers
+local sequencers = {}
+for i = 1, 4 do
+   sequencers[i] = {data = {}, state = 0, playhead = 0, last_cpu_time = 0,
+                    start_time = 0, duration = 0, double_click_timer = nil, press_time = 0}
+end
+local seq_clock_ids = {}
 
 local scales = {
    ["Chromatic"]        = {0,1,2,3,4,5,6,7,8,9,10,11},
@@ -268,6 +276,46 @@ local function calc_cycle_len()
    return attack + release
 end
 
+-- sequencer playback engine (ported from ncoco)
+local function run_sequencer(id)
+   local s = sequencers[id]
+   s.playhead = 0
+   s.last_cpu_time = util.time()
+   while true do
+      if (s.state == 2 or s.state == 4) and s.duration > 0.01 then
+         local now = util.time()
+         local delta = now - s.last_cpu_time
+         s.last_cpu_time = now
+         local old_head = s.playhead
+         s.playhead = s.playhead + delta
+         if s.playhead >= s.duration then
+            for _, e in ipairs(s.data) do
+               if e.dt >= old_head or e.dt < s.playhead - s.duration then
+                  play_note(e.x, e.y, e.z)
+               end
+            end
+            s.playhead = s.playhead % s.duration
+            for _, e in ipairs(s.data) do
+               if e.dt < s.playhead then
+                  play_note(e.x, e.y, e.z)
+               end
+            end
+         else
+            for _, e in ipairs(s.data) do
+               if e.dt >= old_head and e.dt < s.playhead then
+                  play_note(e.x, e.y, e.z)
+               end
+            end
+         end
+         clock.sleep(1/30)
+      else
+         s.last_cpu_time = util.time()
+         s.playhead = 0
+         clock.sleep(0.1)
+      end
+   end
+end
+
 -- init
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
@@ -282,7 +330,7 @@ function init()
       type = "group",
       id   = "harvest",
       name = "HØST",
-      n    = 32
+      n    = 33
    }
 
    params:add{
@@ -360,7 +408,7 @@ function init()
 
    -- per-PSET state persistence (like ncoco)
    params.action_write = function(filename, name, number)
-      Storage.save_pset(number, playing, hold, Harvest.poly_loop == 1, oct, calc_cycle_len())
+      Storage.save_pset(number, playing, hold, Harvest.poly_loop == 1, oct, calc_cycle_len(), sequencers)
    end
    params.action_read = function(filename, silent, number)
       stop_keys()
@@ -407,6 +455,21 @@ function init()
                end
             end
          end
+         if saved.sequencers then
+            for i = 1, 4 do
+               local ss = saved.sequencers[i]
+               if ss then
+                  sequencers[i].data = ss.data or {}
+                  sequencers[i].state = ss.state or 0
+                  sequencers[i].duration = ss.duration or 0
+                  sequencers[i].playhead = 0
+                  sequencers[i].last_cpu_time = util.time()
+                  sequencers[i].start_time = 0
+                  sequencers[i].double_click_timer = nil
+                  sequencers[i].press_time = 0
+               end
+            end
+         end
       end
    end
 
@@ -430,6 +493,11 @@ function init()
    params:bang()
 
    params:set("focus", 3)
+
+   -- launch sequencer clock coroutines
+   for i = 1, 4 do
+      seq_clock_ids[i] = clock.run(function() run_sequencer(i) end)
+   end
 
    -- 16n fader controller initialization with soft takeover
    clock.run(function()
@@ -477,7 +545,11 @@ function init()
 
          local fader_display
          if p_name == "poly_max_attack" or p_name == "poly_max_release" then
-            fader_display = string.format("%.2f s", target_val)
+            local k, c = 12, 0.93
+            local sig = function(v) return 1/(1+math.exp(-k*(v-c))) end
+            local s0, s1 = sig(0), sig(1)
+            local sn = (sig(target_val) - s0) / (s1 - s0)
+            fader_display = string.format("%.2f s", 0.001 + (24-0.001) * sn)
          else
             fader_display = p_obj:string()
          end
@@ -546,20 +618,66 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 g.key = function(x, y, z)
+   -- sequencer buttons (row 8, cols 6-9)
+   if y == 8 and x >= 6 and x <= 9 and z == 1 then
+      local id = x - 5
+      local s = sequencers[id]
+      s.press_time = util.time()
+      if s.state == 0 then
+         s.state = 1; s.data = {}; s.start_time = util.time()
+      elseif s.state == 1 then
+         s.duration = util.time() - s.start_time
+         if s.duration < 0.1 then s.duration = 0.1 end
+         s.state = 2; s.start_time = util.time()
+      elseif s.state == 2 or s.state == 4 then
+         if s.double_click_timer then
+            s.state = 3; s.double_click_timer = nil
+         else
+            s.double_click_timer = clock.run(function()
+               clock.sleep(0.25)
+               if s.state == 3 then return end
+               if s.state == 2 then s.state = 4 else s.state = 2 end
+               s.double_click_timer = nil
+            end)
+         end
+      elseif s.state == 3 then
+         s.state = 2; s.start_time = util.time()
+      end
+      return
+   end
+   if y == 8 and x >= 6 and x <= 9 and z == 0 then
+      local s = sequencers[x - 5]
+      if util.time() - (s.press_time or 0) > 1.0 then
+         s.state = 0; s.data = {}
+      end
+      return
+   end
+
+   -- keyboard: record for active sequencers
+   if z == 1 and y <= 7 and x >= math.max(1, 7 - y) then
+      for i = 1, 4 do
+         local s = sequencers[i]
+         if s.state == 1 or s.state == 4 then
+            local dt = util.time() - s.start_time
+            if s.state == 4 then dt = dt % s.duration end
+            if #s.data < 10000 then
+               table.insert(s.data, {x = x, y = y, z = z, dt = dt})
+            end
+         end
+      end
+   end
+
    if x == 1 and y == 1 then
       if z == 1 then
          if shift_held then
-            -- solo si hold está ON se activa/desactiva sostenuto
             if params:get("poly_hold") == 2 then
                sostenuto = not sostenuto
             end
          elseif params:get("poly_hold") == 2 then
-             -- hold ON → OFF (incluso desde sostenuto)
              params:set("poly_hold", 1)
              sostenuto = false
              stop_keys()
          else
-            -- hold OFF → ON
             params:set("poly_hold", 2)
             for n = 1, #playing do
                playing[n].held = true
@@ -577,13 +695,10 @@ g.key = function(x, y, z)
    elseif x == 1 and y == 8 then
       shift_held = (z == 1)
    elseif y == 8 and x == 2 and z == 1 then
-      -- botón izquierdo: baja una octava (-2 → -1 → 0 → +1 → +2)
       oct = math.max(0, oct - 1)
    elseif y == 8 and x == 3 and z == 1 then
-      -- botón centro: acerca al centro (0 = oct 2)
       if oct < 2 then oct = oct + 1 elseif oct > 2 then oct = oct - 1 end
    elseif y == 8 and x == 4 and z == 1 then
-      -- botón derecho: sube una octava
       oct = math.min(4, oct + 1)
    else
       if y <= 7 and x >= math.max(1, 7 - y) then
@@ -907,6 +1022,20 @@ function redraw_grid()
    g:led(3, 8, oct_led_2)
    g:led(4, 8, oct_led_3)
 
+   -- sequencer LEDs (row 8, cols 6-9)
+   for i = 0, 3 do
+      local x = 6 + i
+      local s = sequencers[i + 1]
+      local b = 0
+      if s.state == 0 then b = 2
+      elseif s.state == 1 then b = math.floor(util.linlin(-1, 1, 5, 15, math.sin(util.time() * 5)))
+      elseif s.state == 2 then b = 12
+      elseif s.state == 3 then b = 5
+      elseif s.state == 4 then b = math.floor(util.linlin(-1, 1, 5, 15, math.sin(util.time() * 15)))
+      end
+      g:led(x, 8, b)
+   end
+
    g:refresh()
 end
 
@@ -1028,6 +1157,9 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 function cleanup()
+   for i = 1, 4 do
+      if seq_clock_ids[i] then clock.cancel(seq_clock_ids[i]) end
+   end
    Storage.save(playing, hold, Harvest.poly_loop == 1, oct, calc_cycle_len())
    stop_keys()
    if save_on_exit then params:write(norns.state.data .. "state.pset") end

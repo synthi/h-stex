@@ -1,7 +1,7 @@
 // Engine_harvest
 // a part of Høst
 //
-// v1.2 
+// v1.3 
 // imminent gloom
 
 Engine_Harvest : CroneEngine {
@@ -52,8 +52,8 @@ Engine_Harvest : CroneEngine {
          input = In.ar(\inBus.ir(10), 2);
 
          body     = \body.kr(0.0);
-         res      = LinSelectX.kr(body * 4, [0.5, 0.5, 0.50, 0.50, 0.5]) * \res_max.kr(0.5);
-         feedback = LinSelectX.kr(body * 4, [0.0, 0.5, 0.99, 0.99, 0.5]) * \fb_max.kr(1.0);
+         res      = LinSelectX.kr(body * 6, [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]) * \res_max.kr(0.5);
+         feedback = LinSelectX.kr(body * 6, [0.0, 0.50, 0.99, 0.99, 0.75, 0.55, 0.50]) * \fb_max.kr(1.0);
 
          peak1 = SVF.ar(input, \peak1.kr(115, 0.1).clip(20, 20000), res, 0, 1, 0);
          peak2 = SVF.ar(input, \peak2.kr(218, 0.1).clip(20, 20000), res, 0, 1, 0);
@@ -61,12 +61,12 @@ Engine_Harvest : CroneEngine {
          filter = peak1 + peak2;
 
          time = \time.kr(1, 0.25);
-         delay = XFade2.ar(filter, input, SelectX.kr(body * 4, [-1, -1, -1, 1, 1]));
+         delay = XFade2.ar(filter, input, SelectX.kr(body * 6, [-1, -1, -1, 1, 1, 0, 1]));
          delay = delay + LPF.ar(LocalIn.ar(2), (4000 - (3000 * time * 0.5)).clip(20, 20000)) * feedback;
          delay = DelayC.ar(delay, 10, time);
          LocalOut.ar(delay);
 
-         mix = SelectX.ar(body * 4, [input, filter, filter + delay * 0.7, input + delay * 0.7, input]);
+         mix = SelectX.ar(body * 6, [input, filter, filter + delay * 0.7, input + delay * 0.7, (input * 0.7 + filter * 0.3 + delay * 0.5), ((input + filter) * 0.5 + delay * 0.25), input]);
 
          gain = \gain.kr(1, 0.1);
          dist = (mix * gain).tanh * (1 / gain.sqrt) * \amp.kr(0.5, 0.1);
@@ -75,15 +75,17 @@ Engine_Harvest : CroneEngine {
       }).add;
 
       SynthDef(\harvestdrone, {
-         var amp, freq, noise, timbre, pulsewidth, sine, saw, square, waveform, threshold, min, lpg;
+         var amp, freq, noise, timbre, drift, pulsewidth, sine, saw, square, waveform, threshold, min, lpg;
 
          amp = \amp.kr(0.8, 0.1);
          freq = \freq.kr(100, 0.1);
          noise = \noise.kr(0.0, 0.1);
          timbre = \timbre.kr(0.5, 0.1);
+         drift = \drift.kr(0.0, 0.1);
 
          freq = WhiteNoise.ar(noise) * freq + freq;
          freq = freq.clip(0, SampleRate.ir * 0.5);
+         freq = freq * (2 ** ((LFNoise2.kr(0.01) * drift * (6/1200)) + (LFNoise2.kr(3.1) * drift * (3/1200))));
 
          pulsewidth = LinSelectX.kr(timbre * 2, [0.001, 0.5, 1]);
          
