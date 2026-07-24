@@ -654,7 +654,7 @@ g.key = function(x, y, z)
    end
 
    -- keyboard: record for active sequencers
-   if z == 1 and y <= 7 and x >= math.max(1, 7 - y) then
+   if (z == 1 or z == 0) and y <= 7 and x >= math.max(1, 7 - y) then
       for i = 1, 4 do
          local s = sequencers[i]
          if s.state == 1 or s.state == 4 then
