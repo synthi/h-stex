@@ -564,8 +564,12 @@ function init()
                   current_display = string.format("%.0f Hz", current_val)
                elseif p_name == "fx_time" then
                   current_display = string.format("%.2f s", current_val)
-               elseif p_name == "poly_max_attack" or p_name == "poly_max_release" then
-                  current_display = string.format("%.2f s", current_val)
+                elseif p_name == "poly_max_attack" or p_name == "poly_max_release" then
+                   local k, c = 12, 0.93
+                   local sig = function(v) return 1/(1+math.exp(-k*(v-c))) end
+                   local s0, s1 = sig(0), sig(1)
+                   local sn = (sig(current_val) - s0) / (s1 - s0)
+                   current_display = string.format("%.2f s", 0.001 + (24-0.001) * sn)
                else
                   current_display = string.format("%.2f", current_val)
                end
