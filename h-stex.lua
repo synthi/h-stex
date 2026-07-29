@@ -348,9 +348,9 @@ local function run_sequencer(id)
          if s.playhead >= s.duration then
             for _, e in ipairs(s.data) do
                if e.dt >= old_head or e.dt < s.playhead - s.duration then
-                  if e.y == 8 and e.x >= 6 and e.x <= 9 then
-                     if e.z == 1 then
-                        local snap_id = e.x - 5
+                if e.y == 8 and e.x >= 2 and e.x <= 5 then
+                   if e.z == 1 then
+                      local snap_id = e.x - 1
                         if drone_snaps[snap_id] == nil then drone_snap_save(snap_id)
                         else drone_snap_load(snap_id) end
                      end
@@ -363,9 +363,9 @@ local function run_sequencer(id)
             s.playhead = s.playhead % s.duration
             for _, e in ipairs(s.data) do
                if e.dt < s.playhead then
-                  if e.y == 8 and e.x >= 6 and e.x <= 9 then
-                     if e.z == 1 then
-                        local snap_id = e.x - 5
+             if e.y == 8 and e.x >= 2 and e.x <= 5 then
+                if e.z == 1 then
+                   local snap_id = e.x - 1
                         if drone_snaps[snap_id] == nil then drone_snap_save(snap_id)
                         else drone_snap_load(snap_id) end
                      end
@@ -377,9 +377,9 @@ local function run_sequencer(id)
          else
             for _, e in ipairs(s.data) do
                if e.dt >= old_head and e.dt < s.playhead then
-                  if e.y == 8 and e.x >= 6 and e.x <= 9 then
-                     if e.z == 1 then
-                        local snap_id = e.x - 5
+          if e.y == 8 and e.x >= 2 and e.x <= 5 then
+             if e.z == 1 then
+                local snap_id = e.x - 1
                         if drone_snaps[snap_id] == nil then drone_snap_save(snap_id)
                         else drone_snap_load(snap_id) end
                      end
@@ -734,10 +734,10 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 g.key = function(x, y, z)
-   -- drone snapshot buttons (row 8, cols 6-9, ncoco-style)
+   -- drone snapshot buttons (row 8, cols 2-5, ncoco-style)
    -- no return here so sequencer recording block below can capture button presses
-   if y == 8 and x >= 6 and x <= 9 then
-      local id = x - 5
+   if y == 8 and x >= 2 and x <= 5 then
+      local id = x - 1
       if z == 1 then
          drone_snap_timers[id] = util.time()
          clock.run(function()
@@ -768,9 +768,9 @@ g.key = function(x, y, z)
       end
    end
 
-   -- sequencer buttons (row 8, cols 12-15)
-   if y == 8 and x >= 12 and x <= 15 and z == 1 then
-      local id = x - 11
+   -- sequencer buttons (row 8, cols 13-16)
+   if y == 8 and x >= 13 and x <= 16 and z == 1 then
+      local id = x - 12
       local s = sequencers[id]
       s.press_time = util.time()
       if s.state == 0 then
@@ -795,8 +795,8 @@ g.key = function(x, y, z)
       end
       return
    end
-   if y == 8 and x >= 12 and x <= 15 and z == 0 then
-      local s = sequencers[x - 11]
+   if y == 8 and x >= 13 and x <= 16 and z == 0 then
+      local s = sequencers[x - 12]
       if util.time() - (s.press_time or 0) > 1.0 then
          s.state = 0; s.data = {}
       end
@@ -818,7 +818,7 @@ g.key = function(x, y, z)
    end
 
    -- record snapshot button presses for active sequencers
-   if y == 8 and x >= 6 and x <= 9 and (z == 1 or z == 0) then
+   if y == 8 and x >= 2 and x <= 5 and (z == 1 or z == 0) then
       for i = 1, 4 do
          local s = sequencers[i]
          if s.state == 1 or s.state == 4 then
@@ -858,11 +858,11 @@ g.key = function(x, y, z)
       end
    elseif x == 1 and y == 8 then
       shift_held = (z == 1)
-   elseif y == 8 and x == 2 and z == 1 then
+   elseif y == 1 and x == 2 and z == 1 then
       oct = math.max(0, oct - 1)
-   elseif y == 8 and x == 3 and z == 1 then
+   elseif y == 1 and x == 3 and z == 1 then
       if oct < 2 then oct = oct + 1 elseif oct > 2 then oct = oct - 1 end
-   elseif y == 8 and x == 4 and z == 1 then
+   elseif y == 1 and x == 4 and z == 1 then
       oct = math.min(4, oct + 1)
    else
       if y <= 7 and x >= math.max(1, 7 - y) then
@@ -1164,7 +1164,7 @@ function redraw_grid()
 
    -- col 1 on
    if Harvest.poly_loop == 1 then g:led(1, 2, 10) end
-   -- octave LEDs in row 8 (linear 0..4: -2,-1,0,+1,+2)
+   -- octave LEDs in row 1 (linear 0..4: -2,-1,0,+1,+2)
    local oct_wave = (math.sin(frame * 0.10) + 1) / 2
    local oct_led_1 = 0  -- x=2 (left)
    local oct_led_2 = 0  -- x=3 (center)
@@ -1182,13 +1182,13 @@ function redraw_grid()
       oct_led_3 = 2 + math.floor(4 * oct_wave + 0.5)  -- +2: blink 6↔2
    end
 
-   g:led(2, 8, oct_led_1)
-   g:led(3, 8, oct_led_2)
-   g:led(4, 8, oct_led_3)
+   g:led(2, 1, oct_led_1)
+   g:led(3, 1, oct_led_2)
+   g:led(4, 1, oct_led_3)
 
-   -- drone snapshot LEDs (row 8, cols 6-9, ncoco-style)
+   -- drone snapshot LEDs (row 8, cols 2-5, ncoco-style)
    for i = 1, 4 do
-      local x = 5 + i
+      local x = 1 + i
       local b = 0
       if drone_snap_timers[i] and drone_snap_timers[i] > 0 then b = 15
       elseif active_drone_snap == i then b = 10
@@ -1197,9 +1197,9 @@ function redraw_grid()
       g:led(x, 8, b)
    end
 
-   -- sequencer LEDs (row 8, cols 12-15)
+   -- sequencer LEDs (row 8, cols 13-16)
    for i = 0, 3 do
-      local x = 12 + i
+      local x = 13 + i
       local s = sequencers[i + 1]
       local b = 0
       if s.state == 0 then b = 2
