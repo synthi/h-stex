@@ -9,7 +9,7 @@ local function state_path()
 end
 
 local function pset_path(number)
-   return _path.data .. "host/" .. string.format("%02d", number) .. "_state.data"
+   return _path.data .. "h-stex/" .. string.format("%02d", number) .. "_state.data"
 end
 
 -- Save current state to disk (cleanup / global fallback)
@@ -51,8 +51,8 @@ end
 -- @param cycle_len    number (pre-calculated envelope cycle length for loop)
 function Storage.save_pset(number, playing, hold, loop, oct, cycle_len, sequencers, drone_snaps, active_drone_snap, loopers)
    if not number then return end
-   if not util.file_exists(_path.data .. "host") then
-      util.make_dir(_path.data .. "host")
+   if not util.file_exists(_path.data .. "h-stex") then
+      util.make_dir(_path.data .. "h-stex")
    end
    local data = {
       notes = {},
