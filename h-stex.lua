@@ -190,7 +190,7 @@ end
 -- reverse lookup: note -> grid position (all scales, keyboard area only)
 local function note_to_xy(n)
    for y = 1, 7 do
-      for x = math.max(1, 7 - y), 16 do
+      for x = math.max(1, 9 - y), 16 do
          if xy_to_note(x, y) == n then
             return x, y
          end
@@ -842,7 +842,7 @@ g.key = function(x, y, z)
    end
 
    -- keyboard: record for active sequencers (with note pitch stored)
-   if (z == 1 or z == 0) and y <= 7 and x >= math.max(1, 7 - y) then
+    if (z == 1 or z == 0) and y <= 7 and x >= math.max(1, 9 - y) then
       for i = 1, 3 do
          local s = sequencers[i]
          if s.state == 1 or s.state == 4 then
@@ -905,7 +905,7 @@ g.key = function(x, y, z)
    elseif y == 1 and x == 4 and z == 1 then
       oct = math.min(4, oct + 1)
    else
-      if y <= 7 and x >= math.max(1, 7 - y) then
+       if y <= 7 and x >= math.max(1, 9 - y) then
          if not hold or sostenuto then play_note(x, y, z) else hold_note(x, y, z) end
       end
    end
@@ -1138,25 +1138,25 @@ function redraw_grid()
    local background = 1
    g:all(0)
 
-   -- background (diagonal pattern = original design, rows 1-7 only)
+   -- background (diagonal pattern, two lines shorter: 9-y boundary)
    if current_scale == "Chromatic" then
-      for n = 6, 16 do g:led(n, 1, background) end
-      for n = 5, 16 do g:led(n, 2, background) end
-      for n = 4, 16 do g:led(n, 3, background) end
-      for n = 3, 16 do g:led(n, 4, background) end
-      for n = 2, 16 do g:led(n, 5, background) end
-      for n = 1, 16 do g:led(n, 6, background) end
-      for n = 1, 16 do g:led(n, 7, background) end
+      for n = 8, 16 do g:led(n, 1, background) end
+      for n = 7, 16 do g:led(n, 2, background) end
+      for n = 6, 16 do g:led(n, 3, background) end
+      for n = 5, 16 do g:led(n, 4, background) end
+      for n = 4, 16 do g:led(n, 5, background) end
+      for n = 3, 16 do g:led(n, 6, background) end
+      for n = 2, 16 do g:led(n, 7, background) end
    else
       -- same diagonal but only light columns within scale pattern
       local steps = #scales[current_scale]
-      for n = 6, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 1, background) end end
-      for n = 5, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 2, background) end end
-      for n = 4, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 3, background) end end
-      for n = 3, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 4, background) end end
-      for n = 2, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 5, background) end end
-      for n = 1, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 6, background) end end
-      for n = 1, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 7, background) end end
+      for n = 8, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 1, background) end end
+      for n = 7, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 2, background) end end
+      for n = 6, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 3, background) end end
+      for n = 5, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 4, background) end end
+      for n = 4, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 5, background) end end
+      for n = 3, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 6, background) end end
+      for n = 2, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 7, background) end end
    end
    
    -- coll 1
@@ -1170,14 +1170,14 @@ function redraw_grid()
    g:led(1, 3, 0)   -- unused → off
    g:led(1, 4, 0)   -- unused → off
    g:led(1, 5, 0)   -- unused → off
-   g:led(1, 6, background)  -- background for playable area
-   g:led(1, 7, background)  -- background for playable area
-   g:led(1, 8, shift_held and 14 or 2)  -- shift button
+   g:led(1, 6, 0)   -- freed from keyboard
+   g:led(1, 7, 0)   -- freed from keyboard
+   g:led(1, 8, shift_held and 14 or 4)  -- shift button
 
    -- tonic notes at level 3, only within keyboard diagonal area (rows 1-7)
    for x = 2, 16 do
       for y = 1, 7 do
-         if x >= math.max(1, 7 - y) then
+          if x >= math.max(1, 9 - y) then
             local n = xy_to_note(x, y)
             if (n % 12) == scale_root then
                g:led(x, y, 3)
