@@ -57,7 +57,7 @@ local      trail = 8
 
 -- sequencers
 local sequencers = {}
-for i = 1, 4 do
+for i = 1, 3 do
    sequencers[i] = {data = {}, state = 0, playhead = 0, last_cpu_time = 0,
                     start_time = 0, duration = 0, double_click_timer = nil, press_time = 0}
 end
@@ -413,7 +413,7 @@ function init()
       type = "group",
       id   = "harvest",
       name = "HØST",
-      n    = 33
+      n    = 42
    }
 
    params:add_separator("kontroll", "CONTROL")
@@ -437,7 +437,32 @@ function init()
       end
    }
 
+   params:add{
+      type        = "option",
+      id          = "poly_hold",
+      name        = "Hold?",
+      options     = {"No", "Yes"},
+      default     = 1,
+      action      = function(x)
+         if x == 1 then hold = false else hold = true end
+         Harvest.poly_hold = x - 1
+      end
+   }
+
+   params:add{
+      type        = "option",
+      id          = "sostenuto",
+      name        = "Sostenuto",
+      options     = {"No", "Yes"},
+      default     = 1,
+      action      = function(x)
+         sostenuto = (x == 2)
+      end
+   }
+
    Harvest.init(false)
+
+   params:add_separator("skala", "SCALE")
 
    -- scale selector
    local scale_names = {}
@@ -472,22 +497,6 @@ function init()
             engine.harvest_note_on(new_note + v.transpose, velocity, duration)
             v.note = new_note
          end
-      end
-   }
-
-   params:add{
-      type        = "option",
-      id          = "poly_hold",
-      name        = "Hold?",
-      options     = {"No", "Yes"},
-      default     = 1,
-      action      = function(x)
-         if x == 1 then
-            hold = false
-         else
-            hold = true
-         end
-         Harvest.poly_hold= x - 1
       end
    }
 
@@ -546,7 +555,7 @@ function init()
             end
          end
          if saved.sequencers then
-            for i = 1, 4 do
+            for i = 1, 3 do
                local ss = saved.sequencers[i]
                if ss then
                   sequencers[i].data = ss.data or {}
@@ -565,7 +574,7 @@ function init()
             end
          else
             -- old PSET without sequencer data: reset all sequencers
-            for i = 1, 4 do
+            for i = 1, 3 do
                sequencers[i] = {data = {}, state = 0, playhead = 0, last_cpu_time = util.time(),
                                 start_time = 0, duration = 0, double_click_timer = nil, press_time = 0}
             end
@@ -578,35 +587,34 @@ function init()
          end
          active_drone_snap = saved.active_drone_snap or 0
 
-         -- restore loopers
+         -- restore loopers (always reset first, then restore if this PSET has data)
+         for i = 1, 6 do
+            Loopers.loopers[i].data = {}
+            Loopers.loopers[i].state = 0
+            Loopers.loopers[i].duration = 0
+            Loopers.loopers[i].playhead = 0
+            Loopers.loopers[i].base_values = {}
+         end
          if saved.loopers then
-            for i = 1, 5 do
+            for i = 1, 6 do
                local sl = saved.loopers[i]
-               if sl then
-                  Loopers.loopers[i].data = sl.data or {}
+               if sl and sl.data and #sl.data > 0 then
+                  Loopers.loopers[i].data = sl.data
                   Loopers.loopers[i].duration = sl.duration or 0
-                  if sl.data and #sl.data > 0 then
-                     Loopers.loopers[i].state = 4  -- stopped with data
-                  else
-                     Loopers.loopers[i].state = 0
-                  end
-                  Loopers.loopers[i].playhead = 0
+                  Loopers.loopers[i].state = 4  -- stopped with data
                   Loopers.loopers[i].last_cpu_time = util.time()
-                  Loopers.loopers[i].start_time = 0
-                  Loopers.loopers[i].base_values = {}
                end
             end
          end
       else
          -- no saved data at all: reset everything
-         for i = 1, 4 do
+         for i = 1, 3 do
             sequencers[i] = {data = {}, state = 0, playhead = 0, last_cpu_time = util.time(),
                              start_time = 0, duration = 0, double_click_timer = nil, press_time = 0}
          end
          drone_snaps = {nil, nil, nil, nil}
          active_drone_snap = 0
-         -- reset loopers too
-         for i = 1, 5 do
+         for i = 1, 6 do
             Loopers.loopers[i] = {data = {}, state = 0, playhead = 0, last_cpu_time = util.time(),
                                   start_time = 0, duration = 0, double_click_timer = nil, press_time = 0,
                                   base_values = {}}
@@ -636,7 +644,7 @@ function init()
    params:set("focus", 3)
 
    -- launch sequencer clock coroutines
-   for i = 1, 4 do
+   for i = 1, 3 do
       seq_clock_ids[i] = clock.run(function() run_sequencer(i) end)
    end
 
@@ -664,7 +672,7 @@ function init()
          Loopers.on_fader_move(id, val_norm)
 
          -- bypass soft takeover during looper rec/overdub
-         if Loopers.recording_active() then fader_latched[id] = true end
+         if Loopers.playback_active() then fader_latched[id] = true end
 
          -- map through controlspec and back (ncoco pattern)
          local target_real = p_obj.controlspec:map(val_norm)
@@ -795,12 +803,12 @@ g.key = function(x, y, z)
       end
    end
 
-   -- parameter looper buttons (delegated to Loopers module, row 8 cols 7-11)
+   -- parameter looper buttons (delegated to Loopers module, row 8 cols 7-12)
    if Loopers.grid_key(x, y, z, shift_held) then return end
 
-   -- sequencer buttons (row 8, cols 13-16)
-   if y == 8 and x >= 13 and x <= 16 and z == 1 then
-      local id = x - 12
+   -- sequencer buttons (row 8, cols 14-16)
+   if y == 8 and x >= 14 and x <= 16 and z == 1 then
+      local id = x - 13
       local s = sequencers[id]
       s.press_time = util.time()
       if s.state == 0 then
@@ -825,8 +833,8 @@ g.key = function(x, y, z)
       end
       return
    end
-   if y == 8 and x >= 13 and x <= 16 and z == 0 then
-      local s = sequencers[x - 12]
+   if y == 8 and x >= 14 and x <= 16 and z == 0 then
+      local s = sequencers[x - 13]
       if util.time() - (s.press_time or 0) > 1.0 then
          s.state = 0; s.data = {}
       end
@@ -835,7 +843,7 @@ g.key = function(x, y, z)
 
    -- keyboard: record for active sequencers (with note pitch stored)
    if (z == 1 or z == 0) and y <= 7 and x >= math.max(1, 7 - y) then
-      for i = 1, 4 do
+      for i = 1, 3 do
          local s = sequencers[i]
          if s.state == 1 or s.state == 4 then
             local dt = util.time() - s.start_time
@@ -849,7 +857,7 @@ g.key = function(x, y, z)
 
    -- record snapshot button presses for active sequencers
    if y == 8 and x >= 2 and x <= 5 and (z == 1 or z == 0) then
-      for i = 1, 4 do
+      for i = 1, 3 do
          local s = sequencers[i]
          if s.state == 1 or s.state == 4 then
             local dt = util.time() - s.start_time
@@ -866,10 +874,12 @@ g.key = function(x, y, z)
          if shift_held then
             if params:get("poly_hold") == 2 then
                sostenuto = not sostenuto
+            params:set("sostenuto", sostenuto and 2 or 1)
             end
          elseif params:get("poly_hold") == 2 then
              params:set("poly_hold", 1)
              sostenuto = false
+          params:set("sostenuto", 1)
              stop_keys()
          else
             params:set("poly_hold", 2)
@@ -1230,9 +1240,9 @@ function redraw_grid()
    -- parameter looper LEDs (delegated to Loopers module)
    Loopers.redraw_grid(g)
 
-   -- sequencer LEDs (row 8, cols 13-16)
-   for i = 0, 3 do
-      local x = 13 + i
+   -- sequencer LEDs (row 8, cols 14-16)
+   for i = 0, 2 do
+      local x = 14 + i
       local s = sequencers[i + 1]
       local b = 0
       if s.state == 0 then b = 2
@@ -1365,7 +1375,7 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 function cleanup()
-   for i = 1, 4 do
+   for i = 1, 3 do
       if seq_clock_ids[i] then clock.cancel(seq_clock_ids[i]) end
    end
    Loopers.cleanup()

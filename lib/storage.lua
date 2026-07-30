@@ -66,7 +66,7 @@ function Storage.save_pset(number, playing, hold, loop, oct, cycle_len, sequence
       table.insert(data.notes, {note = n.note, x = n.x, y = n.y, timestamp = n.timestamp})
    end
    if sequencers then
-      for i = 1, 4 do
+      for i = 1, 3 do
          local s = sequencers[i]
          data.sequencers[i] = {
             data = s.data,
@@ -79,7 +79,7 @@ function Storage.save_pset(number, playing, hold, loop, oct, cycle_len, sequence
     data.active_drone_snap = active_drone_snap or 0
     if loopers then
        data.loopers = {}
-       for i = 1, 5 do
+       for i = 1, 6 do
           local l = loopers[i]
           data.loopers[i] = {
              data = l.data,
@@ -101,7 +101,7 @@ function Storage.load_pset(number)
       local ok, data = pcall(tab.load, path)
       if ok and data then
           if data.sequencers then
-             for i = 1, 4 do
+             for i = 1, 3 do
                 local s = data.sequencers[i]
                 if s and s.data and #s.data > 0 then
                    s.state = 3  -- stopped with data
@@ -112,7 +112,7 @@ function Storage.load_pset(number)
              end
           end
           if data.loopers then
-             for i = 1, 5 do
+             for i = 1, 6 do
                 local l = data.loopers[i]
                 if l and l.data and #l.data > 0 then
                    l.state = 4  -- stopped with data

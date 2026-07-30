@@ -34,7 +34,7 @@ Loopers.fader_current = {}
 
 -- called once during script init
 function Loopers.init()
-   for i = 1, 5 do
+   for i = 1, 6 do
       Loopers.loopers[i] = {
          data = {}, state = 0, playhead = 0, last_cpu_time = 0,
          start_time = 0, duration = 0, double_click_timer = nil, press_time = 0,
@@ -45,16 +45,16 @@ function Loopers.init()
       Loopers.fader_current[i] = 0
    end
    -- launch looper clock coroutines
-   for i = 1, 5 do
+   for i = 1, 6 do
       Loopers.clock_ids[i] = clock.run(function() Loopers.run(i) end)
    end
 end
 
--- returns true if ANY looper is recording or overdubbing
-function Loopers.recording_active()
-   for i = 1, 5 do
+-- returns true if ANY looper is actively modifying parameters (rec/play/overdub)
+function Loopers.playback_active()
+   for i = 1, 6 do
       local s = Loopers.loopers[i].state
-      if s == 1 or s == 3 then return true end
+      if s == 1 or s == 2 or s == 3 then return true end
    end
    return false
 end
@@ -65,7 +65,7 @@ function Loopers.on_fader_move(fader_id, val_norm)
    Loopers.fader_current[fader_id] = val_norm
 
    -- record to any active loopers (state 1 or 3)
-   for i = 1, 5 do
+   for i = 1, 6 do
       local l = Loopers.loopers[i]
       if l.state == 1 or l.state == 3 then
          local dt = util.time() - l.start_time
@@ -85,7 +85,7 @@ function Loopers.on_fader_move(fader_id, val_norm)
                if #l.data > 0 then
                   local prev = l.data[#l.data]
                   if prev.deltas then
-                     for fid, dv in pairs(prev.deltas) do
+                           for fid, dv in pairs(prev.deltas) do
                         if fid ~= fader_id then new_deltas[fid] = dv end
                      end
                   end
@@ -101,7 +101,7 @@ end
 -- grid key handler for looper buttons (row 8, cols 7-11)
 -- returns true if the event was consumed
 function Loopers.grid_key(x, y, z, shift_held)
-   if y ~= 8 or x < 7 or x > 11 then return false end
+   if y ~= 8 or x < 7 or x > 12 then return false end
 
    local id = x - 6
    local l = Loopers.loopers[id]
@@ -181,7 +181,7 @@ end
 
 -- render looper LEDs (row 8, cols 7-11)
 function Loopers.redraw_grid(g)
-   for i = 1, 5 do
+   for i = 1, 6 do
       local x = 6 + i
       local l = Loopers.loopers[i]
       local b = 0
@@ -228,7 +228,7 @@ end
 
 -- stop all loopers and cancel clocks
 function Loopers.cleanup()
-   for i = 1, 5 do
+   for i = 1, 6 do
       if Loopers.clock_ids[i] then
          clock.cancel(Loopers.clock_ids[i])
          Loopers.clock_ids[i] = nil
@@ -303,7 +303,7 @@ function Loopers.run(id)
 
             -- collect all fader IDs from all active loopers
             local all_fids = {}
-            for li = 1, 5 do
+            for li = 1, 6 do
                local ol = Loopers.loopers[li]
                if ol.state == 2 or ol.state == 3 then
                   for _, e in ipairs(ol.data) do
@@ -319,7 +319,7 @@ function Loopers.run(id)
             -- sum interpolated deltas from all active loopers for each fader
             for fid, _ in pairs(all_fids) do
                local total_delta = 0
-               for li = 1, 5 do
+               for li = 1, 6 do
                   local ol = Loopers.loopers[li]
                   if (ol.state == 2 or ol.state == 3) and ol.duration > 0.01 and #ol.data > 0 then
                      local oi1, oi2 = nil, nil
