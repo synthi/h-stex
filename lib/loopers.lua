@@ -22,6 +22,9 @@ Loopers.fader_map = {
    [14] = "poly_max_release",
    [15] = "drone_amp",
    [16] = "poly_amp",
+   [17] = "drone_freq",
+   [18] = "fx_gain",
+   [19] = "poly_scale",
 }
 
 Loopers.sample_rate = 0.01  -- 100Hz (10ms)
@@ -38,7 +41,7 @@ function Loopers.init()
          base_values = {},
       }
    end
-   for i = 1, 16 do
+   for i = 1, 19 do
       Loopers.fader_current[i] = 0
    end
    -- launch looper clock coroutines
@@ -116,7 +119,7 @@ function Loopers.grid_key(x, y, z, shift_held)
          -- start recording
          l.state = 1; l.data = {}; l.start_time = util.time()
          l.base_values = {}
-         for fi = 1, 16 do l.base_values[fi] = Loopers.fader_current[fi] or 0 end
+         for fi = 1, 19 do l.base_values[fi] = Loopers.fader_current[fi] or 0 end
          -- auto-close timer (30s)
          clock.run(function()
             local capture_id = id
@@ -125,9 +128,11 @@ function Loopers.grid_key(x, y, z, shift_held)
                local ll = Loopers.loopers[capture_id]
                ll.duration = util.time() - ll.start_time
                if ll.duration < 0.01 then ll.duration = 0.01 end
+               Loopers.rebase_deltas(ll)
                ll.data = Loopers.slew_compress(ll.data)
                local default_mode = params:get("looper_default_mode")
                ll.state = (default_mode == 1) and 2 or 3
+               ll.playhead = 0; ll.last_cpu_time = util.time()
                ll.start_time = util.time()
             end
          end)
@@ -135,16 +140,20 @@ function Loopers.grid_key(x, y, z, shift_held)
          -- close recording → play or overdub
          l.duration = util.time() - l.start_time
          if l.duration < 0.01 then l.duration = 0.01 end
+         Loopers.rebase_deltas(l)
          l.data = Loopers.slew_compress(l.data)
          local default_mode = params:get("looper_default_mode")
          l.state = (default_mode == 1) and 2 or 3
+         l.playhead = 0; l.last_cpu_time = util.time()
          l.start_time = util.time()
       elseif l.state == 2 then
          l.state = 3; l.start_time = util.time()  -- play → overdub
       elseif l.state == 3 then
          l.state = 2; l.start_time = util.time()  -- overdub → play
       elseif l.state == 4 then
-         l.state = 2; l.start_time = util.time()  -- stop → play
+         l.state = 2
+         l.playhead = 0; l.last_cpu_time = util.time()
+         l.start_time = util.time()  -- stop → play
       end
       return true
    end
@@ -198,6 +207,22 @@ function Loopers.redraw_grid(g)
          b = 4
       end
       g:led(x, 8, b)
+   end
+end
+
+-- re-normalize all deltas so the close point has delta=0 for every fader
+function Loopers.rebase_deltas(l)
+   local rebase = {}
+   for fi = 1, 19 do
+      local close_val = Loopers.fader_current[fi] or 0
+      rebase[fi] = close_val - (l.base_values[fi] or close_val)
+   end
+   for _, entry in ipairs(l.data) do
+      if entry.deltas then
+         for fid, dv in pairs(entry.deltas) do
+            entry.deltas[fid] = dv - (rebase[fid] or 0)
+         end
+      end
    end
 end
 
@@ -325,8 +350,11 @@ function Loopers.run(id)
                      local p_obj = params:lookup_param(p_name)
                      if p_obj then
                         local base = Loopers.fader_current[fid] or 0
+                        local slew = 0.04  -- ~20ms smooth at 100Hz (2 frames)
+                        local current_norm = params:get_raw(p_name)
                         local target_norm = util.clamp(base + total_delta, 0, 1)
-                        local target_val = p_obj.controlspec:map(target_norm)
+                        local smoothed = current_norm + (target_norm - current_norm) * slew
+                        local target_val = p_obj.controlspec:map(smoothed)
                         params:set(p_name, target_val)
                      end
                   end

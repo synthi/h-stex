@@ -1,6 +1,6 @@
 --
---  A remake by Joaue Arias
---  v2.1 - Støy EX
+--  A expanded universe by Joaue Arias
+--  v2.5 - Støy EX
 --      .                   
 --                         
 --          .          .     
@@ -416,10 +416,12 @@ function init()
       n    = 33
    }
 
+   params:add_separator("kontroll", "CONTROL")
+
    params:add{
       type        = "option",
       id          = "focus",
-      name        = "Fokus",
+      name        = "Focus",
       options     = {"Jord", "Løv", "Lys"},
       default     = 1, 
       action      = function(x)
@@ -477,7 +479,7 @@ function init()
       type        = "option",
       id          = "poly_hold",
       name        = "Hold?",
-      options     = {"Nei", "Ja"},
+      options     = {"No", "Yes"},
       default     = 1,
       action      = function(x)
          if x == 1 then
@@ -716,9 +718,17 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 function enc(n, d)
-   if n == 1 then params:delta("drone_freq", d * 0.05) end
-   if n == 2 then params:delta("fx_gain"   , d) end
-   if n == 3 then params:delta("poly_scale", d) end
+   local enc_map = {
+      [1] = {param = "drone_freq", delta = 0.05, id = 17},
+      [2] = {param = "fx_gain",    delta = 1,    id = 18},
+      [3] = {param = "poly_scale", delta = 1,    id = 19},
+   }
+   local m = enc_map[n]
+   if m then
+      params:delta(m.param, d * m.delta)
+      local val_norm = params:get_raw(m.param)
+      Loopers.on_fader_move(m.id, val_norm)
+   end
 end
 
 -- grid: keys
