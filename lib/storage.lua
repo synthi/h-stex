@@ -49,7 +49,7 @@ end
 -- @param loop         boolean
 -- @param oct          number (0..4)
 -- @param cycle_len    number (pre-calculated envelope cycle length for loop)
-function Storage.save_pset(number, playing, hold, loop, oct, cycle_len, sequencers, drone_snaps, active_drone_snap)
+function Storage.save_pset(number, playing, hold, loop, oct, cycle_len, sequencers, drone_snaps, active_drone_snap, loopers)
    if not number then return end
    if not util.file_exists(_path.data .. "host") then
       util.make_dir(_path.data .. "host")
@@ -75,9 +75,20 @@ function Storage.save_pset(number, playing, hold, loop, oct, cycle_len, sequence
          }
       end
    end
-   data.drone_snaps = drone_snaps or {nil, nil, nil, nil}
-   data.active_drone_snap = active_drone_snap or 0
-   tab.save(data, pset_path(number))
+    data.drone_snaps = drone_snaps or {nil, nil, nil, nil}
+    data.active_drone_snap = active_drone_snap or 0
+    if loopers then
+       data.loopers = {}
+       for i = 1, 5 do
+          local l = loopers[i]
+          data.loopers[i] = {
+             data = l.data,
+             state = l.state,
+             duration = l.duration,
+          }
+       end
+    end
+    tab.save(data, pset_path(number))
 end
 
 -- Load state for a specific PSET number
@@ -89,18 +100,29 @@ function Storage.load_pset(number)
    if util.file_exists(path) then
       local ok, data = pcall(tab.load, path)
       if ok and data then
-         if data.sequencers then
-            for i = 1, 4 do
-               local s = data.sequencers[i]
-               if s and s.data and #s.data > 0 then
-                  s.state = 3  -- stopped with data
-                  s.duration = s.duration or 0
-               else
-                  data.sequencers[i] = {data = {}, state = 0, duration = 0}
-               end
-            end
-         end
-         return data
+          if data.sequencers then
+             for i = 1, 4 do
+                local s = data.sequencers[i]
+                if s and s.data and #s.data > 0 then
+                   s.state = 3  -- stopped with data
+                   s.duration = s.duration or 0
+                else
+                   data.sequencers[i] = {data = {}, state = 0, duration = 0}
+                end
+             end
+          end
+          if data.loopers then
+             for i = 1, 5 do
+                local l = data.loopers[i]
+                if l and l.data and #l.data > 0 then
+                   l.state = 4  -- stopped with data
+                   l.duration = l.duration or 0
+                else
+                   data.loopers[i] = {data = {}, state = 0, duration = 0}
+                end
+             end
+          end
+          return data
       end
    end
    return nil

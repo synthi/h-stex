@@ -498,7 +498,7 @@ function init()
       for _, n in ipairs(playing) do
          if not n.seq_note then table.insert(manual_playing, n) end
       end
-      Storage.save_pset(number, manual_playing, hold, Harvest.poly_loop == 1, oct, calc_cycle_len(), sequencers, drone_snaps, active_drone_snap)
+      Storage.save_pset(number, manual_playing, hold, Harvest.poly_loop == 1, oct, calc_cycle_len(), sequencers, drone_snaps, active_drone_snap, Loopers.loopers)
    end
    params.action_read = function(filename, silent, number)
       stop_keys()
@@ -577,6 +577,26 @@ function init()
             drone_snaps = {nil, nil, nil, nil}
          end
          active_drone_snap = saved.active_drone_snap or 0
+
+         -- restore loopers
+         if saved.loopers then
+            for i = 1, 5 do
+               local sl = saved.loopers[i]
+               if sl then
+                  Loopers.loopers[i].data = sl.data or {}
+                  Loopers.loopers[i].duration = sl.duration or 0
+                  if sl.data and #sl.data > 0 then
+                     Loopers.loopers[i].state = 4  -- stopped with data
+                  else
+                     Loopers.loopers[i].state = 0
+                  end
+                  Loopers.loopers[i].playhead = 0
+                  Loopers.loopers[i].last_cpu_time = util.time()
+                  Loopers.loopers[i].start_time = 0
+                  Loopers.loopers[i].base_values = {}
+               end
+            end
+         end
       else
          -- no saved data at all: reset everything
          for i = 1, 4 do
@@ -585,6 +605,12 @@ function init()
          end
          drone_snaps = {nil, nil, nil, nil}
          active_drone_snap = 0
+         -- reset loopers too
+         for i = 1, 5 do
+            Loopers.loopers[i] = {data = {}, state = 0, playhead = 0, last_cpu_time = util.time(),
+                                  start_time = 0, duration = 0, double_click_timer = nil, press_time = 0,
+                                  base_values = {}}
+         end
       end
    end
 
