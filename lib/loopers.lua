@@ -192,9 +192,13 @@ function Loopers.redraw_grid(g)
          local wave = (math.sin(util.time() * math.pi * 2 * 1.1) + 1) / 2
          b = 1 + math.floor(4 * wave + 0.5)
       elseif l.state == 2 then
-         -- oscillate 7↔14
-         local wave = (math.sin(util.time() * math.pi * 2 * 1.5) + 1) / 2
-         b = 7 + math.floor(7 * wave + 0.5)
+         -- progress bar from 3→14 over loop duration
+         if l.duration > 0.01 then
+            local progress = (l.playhead / l.duration) % 1
+            b = 3 + math.floor(11 * progress + 0.5)
+         else
+            b = 3
+         end
       elseif l.state == 3 then
          -- 1.8Hz pulse between 2↔7
          local wave = (math.sin(util.time() * math.pi * 2 * 1.8) + 1) / 2
