@@ -51,6 +51,7 @@ Engine_Harvest : CroneEngine {
       // initialize synth defs
       SynthDef(\harvestfx, {
          var input, body, bodyLag, filter, peak1, peak2, res, delay, time, feedback, mix, gain, dist;
+         var delay_raw, delay_L, delay_R;
          // === Analog tolerances (fixed per synth instance) ===
          var peak1_L_var = Rand(0.98, 1.02);
          var peak1_R_var = Rand(0.98, 1.02);
@@ -77,32 +78,37 @@ Engine_Harvest : CroneEngine {
          feedback = LinSelectX.kr(body * 6, [0.0, 0.50, 0.99, 0.99, 0.75, 0.55, 0.50]) * \fb_max.kr(1.0);
 
          // SVF peaks with L/R tolerances
-         peak1 = SVF.ar(input, \peak1.kr(115, 0.1).clip(20, 20000), res, 0, 1, 0);
-         peak1 = [peak1[0] * (1 + thermal), peak1[1] * (1 + thermal)]; // gentle thermal on peaks
-         peak1[0] = SVF.ar(input[0], (\peak1.kr(115, 0.1) * peak1_L_var).clip(20, 20000), res * res_L_var, 0, 1, 0);
-         peak1[1] = SVF.ar(input[1], (\peak1.kr(115, 0.1) * peak1_R_var).clip(20, 20000), res * res_R_var, 0, 1, 0);
+         peak1 = [
+            SVF.ar(input[0], (\peak1.kr(115, 0.1) * peak1_L_var).clip(20, 20000), res * res_L_var, 0, 1, 0),
+            SVF.ar(input[1], (\peak1.kr(115, 0.1) * peak1_R_var).clip(20, 20000), res * res_R_var, 0, 1, 0)
+         ];
 
-         peak2[0] = SVF.ar(input[0], (\peak2.kr(218, 0.1) * peak2_L_var * peak2_offset).clip(20, 20000), res * res_L_var, 0, 1, 0);
-         peak2[1] = SVF.ar(input[1], (\peak2.kr(218, 0.1) * peak2_R_var * peak2_offset).clip(20, 20000), res * res_R_var, 0, 1, 0);
+         peak2 = [
+            SVF.ar(input[0], (\peak2.kr(218, 0.1) * peak2_L_var * peak2_offset).clip(20, 20000), res * res_L_var, 0, 1, 0),
+            SVF.ar(input[1], (\peak2.kr(218, 0.1) * peak2_R_var * peak2_offset).clip(20, 20000), res * res_R_var, 0, 1, 0)
+         ];
 
          filter = peak1 + peak2;
 
          time = \time.kr(1, 0.25);
-         delay = XFade2.ar(filter, input, SelectX.kr(body * 6, [-1, -1, -1, 1, 1, 0, 1]));
+         delay_raw = XFade2.ar(filter, input, SelectX.kr(body * 6, [-1, -1, -1, 1, 1, 0, 1]));
 
          // Delay with L/R time + feedback LPF tolerances
-         delay[0] = delay[0] + LPF.ar(LocalIn.ar(2)[0], ((4000 - (3000 * time * 0.5)).clip(20, 20000) * fb_lpf_L_var)) * (feedback * fb_L_var);
-         delay[1] = delay[1] + LPF.ar(LocalIn.ar(2)[1], ((4000 - (3000 * time * 0.5)).clip(20, 20000) * fb_lpf_R_var)) * (feedback * fb_R_var);
+         delay_L = delay_raw[0] + LPF.ar(LocalIn.ar(2)[0], ((4000 - (3000 * time * 0.5)).clip(20, 20000) * fb_lpf_L_var)) * (feedback * fb_L_var);
+         delay_R = delay_raw[1] + LPF.ar(LocalIn.ar(2)[1], ((4000 - (3000 * time * 0.5)).clip(20, 20000) * fb_lpf_R_var)) * (feedback * fb_R_var);
 
-         delay[0] = DelayC.ar(delay[0], 10, time * delay_L_var);
-         delay[1] = DelayC.ar(delay[1], 10, time * delay_R_var);
+         delay_L = DelayC.ar(delay_L, 10, time * delay_L_var);
+         delay_R = DelayC.ar(delay_R, 10, time * delay_R_var);
+         delay = [delay_L, delay_R];
          LocalOut.ar(delay);
 
          mix = SelectX.ar(body * 6, [input, filter, filter + delay * 0.7, input + delay * 0.7, (input * 0.7 + filter * 0.5 + delay * 0.5), (input * 0.55 + filter * 0.8 + delay * 0.55), input]);
 
          gain = \gain.kr(1, 0.1);
-         dist[0] = (mix[0] * gain * gain_L_var).tanh * (1 / gain.sqrt) * \amp.kr(0.5, 0.1);
-         dist[1] = (mix[1] * gain * gain_R_var).tanh * (1 / gain.sqrt) * \amp.kr(0.5, 0.1);
+         dist = [
+            (mix[0] * gain * gain_L_var).tanh * (1 / gain.sqrt) * \amp.kr(0.5, 0.1),
+            (mix[1] * gain * gain_R_var).tanh * (1 / gain.sqrt) * \amp.kr(0.5, 0.1)
+         ];
 
          Out.ar(\out.ir(0), dist);
       }).add;
