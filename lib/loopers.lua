@@ -75,23 +75,60 @@ function Loopers.on_fader_move(fader_id, val_norm)
          local base = l.base_values[fader_id] or val_norm
          local delta = val_norm - base
 
-         -- check if delta changed enough from last entry
-         local last_deltas = (#l.data > 0) and l.data[#l.data].deltas or {}
-         local last_dv = last_deltas[fader_id] or 0
+         -- check if delta changed enough from last entry for this fader
+         local last_dv = 0
+         if #l.data > 0 then
+            for j = #l.data, 1, -1 do
+               local rd = l.data[j].deltas[fader_id]
+               if rd ~= nil then last_dv = rd; break end
+            end
+         end
          if math.abs(delta - last_dv) > 0.003 then
             if #l.data < 3000 then
-               local new_deltas = {}
-               -- carry forward other faders' current deltas
-               if #l.data > 0 then
-                  local prev = l.data[#l.data]
-                  if prev.deltas then
-                           for fid, dv in pairs(prev.deltas) do
-                        if fid ~= fader_id then new_deltas[fid] = dv end
+               -- Overdub (state 3): find existing entry at same dt or insert sorted
+               if l.state == 3 and l.duration > 0.01 then
+                  local replaced = false
+                  for j = 1, #l.data do
+                     if math.abs(l.data[j].dt - dt) < 0.005 then
+                        l.data[j].deltas[fader_id] = delta
+                        replaced = true
+                        break
                      end
                   end
+                  if not replaced then
+                     -- Insert sorted by dt
+                     local new_entry = {dt = dt, deltas = {}}
+                     new_entry.deltas[fader_id] = delta
+                     -- carry forward other faders' deltas from preceding entry
+                     local prev_idx = nil
+                     for j = #l.data, 1, -1 do
+                        if l.data[j].dt <= dt then prev_idx = j; break end
+                     end
+                     if prev_idx then
+                        for fid, dv in pairs(l.data[prev_idx].deltas) do
+                           if fid ~= fader_id then new_entry.deltas[fid] = dv end
+                        end
+                     end
+                     local insert_idx = #l.data + 1
+                     for j = 1, #l.data do
+                        if l.data[j].dt > dt then insert_idx = j; break end
+                     end
+                     table.insert(l.data, insert_idx, new_entry)
+                  end
+               else
+                  -- Record (state 1): append as before (chronological order guaranteed)
+                  local new_deltas = {}
+                  if #l.data > 0 then
+                     local prev = l.data[#l.data]
+                     if prev.deltas then
+                        for fid, dv in pairs(prev.deltas) do
+                           if fid ~= fader_id then new_deltas[fid] = dv end
+                        end
+                     end
+                  end
+                  new_deltas[fader_id] = delta
+                  table.insert(l.data, {dt = dt, deltas = new_deltas})
                end
-               new_deltas[fader_id] = delta
-               table.insert(l.data, {dt = dt, deltas = new_deltas})
             end
          end
       end
@@ -350,11 +387,8 @@ function Loopers.run(id)
                      local p_obj = params:lookup_param(p_name)
                      if p_obj then
                         local base = Loopers.fader_current[fid] or 0
-                        local slew = 0.04  -- ~20ms smooth at 100Hz (2 frames)
-                        local current_norm = params:get_raw(p_name)
                         local target_norm = util.clamp(base + total_delta, 0, 1)
-                        local smoothed = current_norm + (target_norm - current_norm) * slew
-                        local target_val = p_obj.controlspec:map(smoothed)
+                        local target_val = p_obj.controlspec:map(target_norm)
                         params:set(p_name, target_val)
                      end
                   end

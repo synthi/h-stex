@@ -171,7 +171,7 @@ local function xy_to_note(x, y)
    local scale = scales[current_scale]
    local steps = #scale
    if current_scale == "Chromatic" then
-      note = 12 + scale_root
+      note = 12 + scale_root - 24
       note = note + x
       note = note + 5 * (8 - y)
    else
@@ -182,7 +182,7 @@ local function xy_to_note(x, y)
       local total_steps = step_index + row_offset
       local octave_shift = math.floor((total_steps - 1) / steps)
       local final_step = ((total_steps - 1) % steps) + 1
-      note = 12 + scale_root + (octave_offset + octave_shift) * 12 + scale[final_step]
+      note = 12 + scale_root - 24 + (octave_offset + octave_shift) * 12 + scale[final_step]
    end
    return note
 end
