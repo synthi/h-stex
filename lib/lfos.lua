@@ -1,21 +1,20 @@
 -- lib/lfos.lua
--- 4 free-running LFOs with ramp-tri-saw shape morphing
--- Publishes contributions to ModBus at 120Hz
--- v1.0 for h-stex
+-- 4 free-running LFOs with ramp-tri-saw shape morphing + LFNoise
+-- Writes directly via params:set() (Audrey pattern: subtract own contrib, add new)
+-- v2.0 for h-stex
 
 local LFOs = {}
 
 LFOs.data = {}          -- 4 LFOs
 LFOs.patch_mode = nil   -- lfo_id activo en patch (nil si no hay)
-LFOs.patch_target = nil -- param_id seleccionado para editar depth
+LFOs.patch_cursor = 1   -- item seleccionado en menu (1=shape, 2=noise, 3+=assignments)
 LFOs.clock_ids = {}     -- clock coroutine IDs
 
 -- Wave shape: 0=ramp, 0.5=triangle, 1=saw (continuous crossfade)
 local function calc_wave(phase_norm, shape)
-   -- phase_norm: 0..1
-   local ramp = phase_norm * 2 - 1                    -- -1→1
-   local tri  = 2 * math.abs(2 * phase_norm - 1) - 1  -- -1→1→-1
-   local saw  = (1 - phase_norm) * 2 - 1               -- 1→-1
+   local ramp = phase_norm * 2 - 1
+   local tri  = 2 * math.abs(2 * phase_norm - 1) - 1
+   local saw  = (1 - phase_norm) * 2 - 1
    if shape <= 0.5 then
       local t = shape / 0.5
       return ramp * (1 - t) + tri * t
@@ -28,17 +27,22 @@ end
 function LFOs.init()
    LFOs.data = {}
    LFOs.patch_mode = nil
-   LFOs.patch_target = nil
+   LFOs.patch_cursor = 1
    local default_freqs = {0.05, 0.12, 0.25, 0.42}
    for i = 1, 4 do
       LFOs.data[i] = {
          freq = default_freqs[i],
          shape = 0.5,    -- 0=ramp, 0.5=tri, 1=saw
+         noise = 0.0,    -- 0=pure det, 1=pure LFNoise
          phase = math.random() * 2 * math.pi,
          value = 0.0,
-         assignments = {},  -- {param_id, depth}
+         assignments = {},  -- {param_id, depth, contrib}
          history = {},
          history_head = 1,
+         -- LFNoise state
+         slew_target = math.random() * 2 - 1,
+         slew_current = 0.0,
+         slew_timer = 0.0,
       }
       for j = 1, 128 do LFOs.data[i].history[j] = 0 end
       LFOs.clock_ids[i] = clock.run(function() LFOs._run(i) end)
@@ -51,46 +55,67 @@ function LFOs.cleanup()
          clock.cancel(LFOs.clock_ids[i])
          LFOs.clock_ids[i] = nil
       end
-      if ModBus then ModBus.clear_source("lfo" .. i) end
    end
    LFOs.data = {}
    LFOs.patch_mode = nil
-   LFOs.patch_target = nil
+   LFOs.patch_cursor = 1
 end
 
--- LFO coroutine: runs at 120Hz
+-- LFO coroutine: runs at 120Hz with delta timing
 function LFOs._run(id)
    local lfo = LFOs.data[id]
    if not lfo then return end
+   local last_time = util.time()
    while true do
-      LFOs._tick(id)
+      local now = util.time()
+      local delta = now - last_time
+      last_time = now
+      LFOs._tick(id, delta)
       clock.sleep(1/120)
    end
 end
 
-function LFOs._tick(id)
+function LFOs._tick(id, delta)
    local lfo = LFOs.data[id]
    if not lfo then return end
 
-   -- Advance phase
-   lfo.phase = lfo.phase + (2 * math.pi * lfo.freq / 120)
+   -- Advance phase using real delta time
+   lfo.phase = lfo.phase + (2 * math.pi * lfo.freq * delta)
    if lfo.phase > 2 * math.pi then lfo.phase = lfo.phase - 2 * math.pi end
 
    local phase_norm = lfo.phase / (2 * math.pi)
-   lfo.value = calc_wave(phase_norm, lfo.shape)
+   local det_wave = calc_wave(phase_norm, lfo.shape)
+
+   -- LFNoise with slew: random target every 1/freq seconds, linear interp
+   local noise_wave = lfo.slew_current
+   lfo.slew_timer = lfo.slew_timer + delta
+   local interval = 1 / lfo.freq
+   if lfo.slew_timer >= interval then
+      lfo.slew_timer = lfo.slew_timer - interval
+      lfo.slew_target = math.random() * 2 - 1
+   end
+   local t = lfo.slew_timer / interval
+   lfo.slew_current = lfo.slew_current + (lfo.slew_target - lfo.slew_current) * t * 0.5
+
+   -- Mix deterministic + noise
+   lfo.value = det_wave * (1 - lfo.noise) + noise_wave * lfo.noise
 
    -- Push to history ALWAYS (for scope)
    lfo.history_head = (lfo.history_head % 128) + 1
    lfo.history[lfo.history_head] = lfo.value
 
-   -- Publish contributions to ModBus
+   -- Apply modulation: Audrey pattern (subtract own contrib, add new)
    for _, a in ipairs(lfo.assignments) do
       local param_id, depth = a[1], a[2]
       local p = params:lookup_param(param_id)
       if p then
+         local current_raw = p:get()
+         local base = current_raw - (a[3] or 0)
          local range = p.controlspec.maxval - p.controlspec.minval
          local contrib = ((lfo.value + 1) / 2) * depth * range
-         ModBus.set_contrib("lfo" .. id, param_id, contrib)
+         a[3] = contrib
+         local new_val = util.clamp(base + contrib, p.controlspec.minval, p.controlspec.maxval)
+         params:set(param_id, new_val)
       end
    end
 end
@@ -100,12 +125,41 @@ function LFOs.connect_or_select(lfo_id, param_id)
    if not LFOs.data[lfo_id] then return end
    for _, a in ipairs(LFOs.data[lfo_id].assignments) do
       if a[1] == param_id then
-         LFOs.patch_target = param_id
+         -- Already connected: select it in cursor
+         LFOs._select_assignment(lfo_id, param_id)
          return
       end
    end
-   table.insert(LFOs.data[lfo_id].assignments, {param_id, 0.25})
-   LFOs.patch_target = param_id
+   table.insert(LFOs.data[lfo_id].assignments, {param_id, 0.25, 0.0})
+   LFOs._select_assignment(lfo_id, param_id)
+end
+
+-- Set cursor to the assignment for this param
+function LFOs._select_assignment(lfo_id, param_id)
+   local lfo = LFOs.data[lfo_id]
+   if not lfo then return end
+   for idx, a in ipairs(lfo.assignments) do
+      if a[1] == param_id then
+         LFOs.patch_cursor = 2 + idx  -- 1=shape, 2=noise, 3+=assignments
+         return
+      end
+   end
+end
+
+-- Enter patch mode: auto-select first assignment if available
+function LFOs.enter_patch(lfo_id)
+   LFOs.patch_mode = lfo_id
+   local lfo = LFOs.data[lfo_id]
+   if lfo and #lfo.assignments > 0 then
+      LFOs.patch_cursor = 3  -- first assignment
+   else
+      LFOs.patch_cursor = 1  -- shape
+   end
+end
+
+function LFOs.exit_patch()
+   LFOs.patch_mode = nil
+   LFOs.patch_cursor = 1
 end
 
 -- Remove assignment
@@ -114,125 +168,141 @@ function LFOs.remove_assignment(lfo_id, param_id)
    for idx, a in ipairs(LFOs.data[lfo_id].assignments) do
       if a[1] == param_id then
          table.remove(LFOs.data[lfo_id].assignments, idx)
-         ModBus.clear_contrib("lfo" .. lfo_id, param_id)
-         if LFOs.patch_target == param_id then LFOs.patch_target = nil end
          return
       end
    end
 end
 
--- Remove current patch_target (used with SHIFT in patch mode)
-function LFOs.remove_current_target()
-   if not LFOs.patch_mode or not LFOs.patch_target then return end
-   LFOs.remove_assignment(LFOs.patch_mode, LFOs.patch_target)
+-- Remove assignment at current cursor position (if cursor is on an assignment)
+function LFOs.remove_current()
+   if not LFOs.patch_mode then return end
+   local lfo = LFOs.data[LFOs.patch_mode]
+   if not lfo then return end
+   local assign_idx = LFOs.patch_cursor - 2
+   if assign_idx >= 1 and assign_idx <= #lfo.assignments then
+      table.remove(lfo.assignments, assign_idx)
+      -- Adjust cursor
+      if #lfo.assignments == 0 then
+         LFOs.patch_cursor = 2  -- go to noise
+      elseif LFOs.patch_cursor > #lfo.assignments + 2 then
+         LFOs.patch_cursor = #lfo.assignments + 2
+      end
+   end
 end
 
 -- Clear all assignments for an LFO
 function LFOs.clear_assignments(lfo_id)
    if not LFOs.data[lfo_id] then return end
-   for _, a in ipairs(LFOs.data[lfo_id].assignments) do
-      ModBus.clear_contrib("lfo" .. lfo_id, a[1])
-   end
    LFOs.data[lfo_id].assignments = {}
-   LFOs.patch_target = nil
+   if LFOs.patch_mode == lfo_id then
+      LFOs.patch_cursor = math.min(LFOs.patch_cursor, 2)
+   end
 end
 
 function LFOs.clear_all()
    for i = 1, 4 do
       if LFOs.data[i] then
-         for _, a in ipairs(LFOs.data[i].assignments) do
-            ModBus.clear_contrib("lfo" .. i, a[1])
-         end
          LFOs.data[i].assignments = {}
       end
    end
-   LFOs.patch_target = nil
 end
 
--- Adjust depth of current patch_target
-function LFOs.adjust_depth(delta)
-   local id = LFOs.patch_mode
-   local param_id = LFOs.patch_target
-   if not id or not param_id or not LFOs.data[id] then return end
-   for _, a in ipairs(LFOs.data[id].assignments) do
-      if a[1] == param_id then
-         a[2] = util.clamp(a[2] + delta / 100, -1, 1)
-         break
-      end
-   end
+-- Cycle cursor (E2)
+function LFOs.next_cursor()
+   if not LFOs.patch_mode then return end
+   local lfo = LFOs.data[LFOs.patch_mode]
+   if not lfo then return end
+   local max_cursor = 2 + #lfo.assignments
+   LFOs.patch_cursor = LFOs.patch_cursor + 1
+   if LFOs.patch_cursor > max_cursor then LFOs.patch_cursor = 1 end
 end
 
--- Flip polarity of current patch_target
-function LFOs.flip_polarity()
-   local id = LFOs.patch_mode
-   local param_id = LFOs.patch_target
-   if not id or not param_id or not LFOs.data[id] then return end
-   for _, a in ipairs(LFOs.data[id].assignments) do
-      if a[1] == param_id then
-         a[2] = -a[2]
-         break
-      end
-   end
-end
-
--- Cycle to next assignment target
-function LFOs.next_target()
-   local id = LFOs.patch_mode
-   if not id or not LFOs.data[id] then return end
-   local lfo = LFOs.data[id]
-   if #lfo.assignments == 0 then return end
-   local current_idx = nil
-   for idx, a in ipairs(lfo.assignments) do
-      if a[1] == LFOs.patch_target then current_idx = idx; break end
-   end
-   if not current_idx then
-      LFOs.patch_target = lfo.assignments[1][1]
+-- Adjust value at current cursor (E3)
+function LFOs.adjust_value(delta)
+   if not LFOs.patch_mode then return end
+   local lfo = LFOs.data[LFOs.patch_mode]
+   if not lfo then return end
+   if LFOs.patch_cursor == 1 then
+      -- shape
+      lfo.shape = util.clamp(lfo.shape + delta * 0.02, 0, 1)
+   elseif LFOs.patch_cursor == 2 then
+      -- noise
+      lfo.noise = util.clamp(lfo.noise + delta * 0.02, 0, 1)
    else
-      local next_idx = current_idx + 1
-      if next_idx > #lfo.assignments then next_idx = 1 end
-      LFOs.patch_target = lfo.assignments[next_idx][1]
+      -- assignment depth
+      local assign_idx = LFOs.patch_cursor - 2
+      if assign_idx >= 1 and assign_idx <= #lfo.assignments then
+         local a = lfo.assignments[assign_idx]
+         a[2] = util.clamp(a[2] + delta / 100, -1, 1)
+      end
    end
 end
 
--- Adjust frequency of current patch_mode LFO
+-- Flip polarity (K3) - only if cursor is on an assignment
+function LFOs.flip_polarity()
+   if not LFOs.patch_mode then return end
+   local lfo = LFOs.data[LFOs.patch_mode]
+   if not lfo then return end
+   local assign_idx = LFOs.patch_cursor - 2
+   if assign_idx >= 1 and assign_idx <= #lfo.assignments then
+      lfo.assignments[assign_idx][2] = -lfo.assignments[assign_idx][2]
+   end
+end
+
+-- Adjust frequency (E1, always available in patch mode)
 function LFOs.adjust_freq(delta)
-   local id = LFOs.patch_mode
-   if not id or not LFOs.data[id] then return end
-   local lfo = LFOs.data[id]
+   if not LFOs.patch_mode then return end
+   local lfo = LFOs.data[LFOs.patch_mode]
+   if not lfo then return end
    lfo.freq = util.clamp(lfo.freq + delta * 0.01, 0.01, 12)
 end
 
--- Adjust shape of current patch_mode LFO
-function LFOs.adjust_shape(delta)
-   local id = LFOs.patch_mode
-   if not id or not LFOs.data[id] then return end
-   local lfo = LFOs.data[id]
-   lfo.shape = util.clamp(lfo.shape + delta * 0.05, 0, 1)
+-- Get current cursor info for display
+function LFOs.get_cursor_info()
+   if not LFOs.patch_mode then return nil end
+   local lfo = LFOs.data[LFOs.patch_mode]
+   if not lfo then return nil end
+   local info = {
+      lfo_id = LFOs.patch_mode,
+      freq = lfo.freq,
+      cursor = LFOs.patch_cursor,
+      max_cursor = 2 + #lfo.assignments,
+   }
+   if LFOs.patch_cursor == 1 then
+      info.label = "shape"
+      info.value = lfo.shape
+      info.is_assignment = false
+   elseif LFOs.patch_cursor == 2 then
+      info.label = "noise"
+      info.value = lfo.noise
+      info.is_assignment = false
+   else
+      local assign_idx = LFOs.patch_cursor - 2
+      local a = lfo.assignments[assign_idx]
+      if a then
+         info.label = a[1]
+         info.value = a[2]
+         info.is_assignment = true
+         info.assign_idx = assign_idx
+         info.total_assign = #lfo.assignments
+      end
+   end
+   return info
 end
 
--- Get depth of current patch_target
-function LFOs.get_current_depth()
-   local id = LFOs.patch_mode
-   local param_id = LFOs.patch_target
-   if not id or not param_id or not LFOs.data[id] then return 0 end
-   for _, a in ipairs(LFOs.data[id].assignments) do
-      if a[1] == param_id then return a[2] end
+-- Get base value for a param (without this LFO's contribution)
+function LFOs.get_base_value(param_id)
+   for i = 1, 4 do
+      if LFOs.data[i] then
+         for _, a in ipairs(LFOs.data[i].assignments) do
+            if a[1] == param_id then
+               local p = params:lookup_param(param_id)
+               if p then return p:get() - (a[3] or 0) end
+            end
+         end
+      end
    end
-   return 0
-end
-
--- Get target index info
-function LFOs.get_target_info()
-   local id = LFOs.patch_mode
-   if not id or not LFOs.data[id] then return 0, 0 end
-   local lfo = LFOs.data[id]
-   local total = #lfo.assignments
-   if total == 0 then return 0, 0 end
-   local current_idx = 1
-   for idx, a in ipairs(lfo.assignments) do
-      if a[1] == LFOs.patch_target then current_idx = idx; break end
-   end
-   return current_idx, total
+   return nil
 end
 
 -- Serialize for PSET
@@ -248,6 +318,7 @@ function LFOs.get_state()
          state[i] = {
             freq = lfo.freq,
             shape = lfo.shape,
+            noise = lfo.noise,
             assignments = assignments,
          }
       end
@@ -263,15 +334,15 @@ function LFOs.set_state(state)
          local s = state[i]
          LFOs.data[i].freq = s.freq or 0.25
          LFOs.data[i].shape = s.shape or 0.5
+         LFOs.data[i].noise = s.noise or 0.0
          LFOs.data[i].assignments = {}
          if s.assignments then
             for _, a in ipairs(s.assignments) do
-               table.insert(LFOs.data[i].assignments, {a[1], a[2]})
+               table.insert(LFOs.data[i].assignments, {a[1], a[2], 0.0})
             end
          end
       end
    end
-   LFOs.patch_target = nil
 end
 
 return LFOs

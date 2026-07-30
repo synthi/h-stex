@@ -21,6 +21,7 @@ engine.name = "Harvest"
           UI = include("lib/ui")
          _16n = include("lib/16n")
     Loopers = include("lib/loopers")
+    LFOs = include("lib/lfos")
 
 local save_on_exit = true
 
@@ -507,7 +508,7 @@ function init()
       for _, n in ipairs(playing) do
          if not n.seq_note then table.insert(manual_playing, n) end
       end
-      Storage.save_pset(number, manual_playing, hold, Harvest.poly_loop == 1, oct, calc_cycle_len(), sequencers, drone_snaps, active_drone_snap, Loopers.loopers)
+      Storage.save_pset(number, manual_playing, hold, Harvest.poly_loop == 1, oct, calc_cycle_len(), sequencers, drone_snaps, active_drone_snap, Loopers.loopers, LFOs.get_state())
    end
    params.action_read = function(filename, silent, number)
       stop_keys()
@@ -606,6 +607,9 @@ function init()
                end
             end
          end
+         -- restore LFOs (backward compatible: old PSETs have no lfos field)
+         LFOs.clear_all()
+         if saved.lfos then LFOs.set_state(saved.lfos) end
       else
          -- no saved data at all: reset everything
          for i = 1, 3 do
@@ -619,6 +623,7 @@ function init()
                                   start_time = 0, duration = 0, double_click_timer = nil, press_time = 0,
                                   base_values = {}}
          end
+         LFOs.clear_all()
       end
    end
 
@@ -651,6 +656,9 @@ function init()
    -- launch looper clock coroutines
    Loopers.init()
 
+   -- initialize LFOs
+   LFOs.init()
+
    -- 16n fader controller initialization with soft takeover
    clock.run(function()
       clock.sleep(2.0)
@@ -666,7 +674,21 @@ function init()
 
          -- normalize midi value (0-127) to 0-1
          local val_norm = util.clamp(msg.val / 127, 0, 1)
-         local current_norm = params:get_raw(p_name)
+
+         -- LFO patch mode: fader movement connects/selects target, no param change
+         if LFOs.patch_mode then
+            LFOs.connect_or_select(LFOs.patch_mode, p_name)
+            return
+         end
+
+         -- Use base value (without LFO modulation) for soft takeover comparison
+         local lfo_base = LFOs.get_base_value(p_name)
+         local current_norm
+         if lfo_base then
+            current_norm = p_obj.controlspec:unmap(lfo_base)
+         else
+            current_norm = params:get_raw(p_name)
+         end
 
          -- notify loopers of fader movement (for recording & playback offset)
          Loopers.on_fader_move(id, val_norm)
@@ -743,6 +765,13 @@ function key(n, z)
    if n == 2 and z == 0 then k2_held = false end
    if n == 3 and z == 1 then k3_held = true  end
    if n == 3 and z == 0 then k3_held = false end
+
+   -- LFO patch mode: K3=flip polarity (only on assignments)
+   if LFOs.patch_mode and z == 1 and n == 3 then
+      LFOs.flip_polarity()
+      return
+   end
+
    if n == 2 and z == 1 and not k3_held then params:set("focus", 1) end
    if n == 3 and z == 1 and not k2_held then params:set("focus", 2) end
    if k2_held and k3_held then params:set("focus", 3) end
@@ -752,6 +781,18 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 function enc(n, d)
+   -- LFO patch mode: E1=freq, E2=next cursor, E3=adjust value
+   if LFOs.patch_mode then
+      if n == 1 then
+         LFOs.adjust_freq(d)
+      elseif n == 2 then
+         LFOs.next_cursor()
+      elseif n == 3 then
+         LFOs.adjust_value(d)
+      end
+      return
+   end
+
    local enc_map = {
       [1] = {param = "drone_freq", delta = 0.05, id = 17},
       [2] = {param = "fx_gain",    delta = 1,    id = 18},
@@ -801,6 +842,24 @@ g.key = function(x, y, z)
             end
          end
       end
+   end
+
+   -- LFO buttons: rows 4-5, cols 1-2 (hold=patch, release=exit, SHIFT+hold=clear)
+   if y >= 4 and y <= 5 and x >= 1 and x <= 2 then
+      local lfo_id = (y - 4) * 2 + x
+      if z == 1 then
+         if shift_held then
+            LFOs.clear_assignments(lfo_id)
+         else
+            LFOs.enter_patch(lfo_id)
+            for i = 1, 16 do fader_latched[i] = false end
+         end
+      elseif z == 0 then
+         if LFOs.patch_mode == lfo_id then
+            LFOs.exit_patch()
+         end
+      end
+      return
    end
 
    -- parameter looper buttons (delegated to Loopers module, row 8 cols 7-12)
@@ -898,6 +957,10 @@ g.key = function(x, y, z)
       end
    elseif x == 1 and y == 8 then
       shift_held = (z == 1)
+      -- SHIFT while in LFO patch mode: delete current item (if assignment)
+      if z == 1 and LFOs.patch_mode then
+         LFOs.remove_current()
+      end
    elseif y == 1 and x == 2 and z == 1 then
       oct = math.max(0, oct - 1)
    elseif y == 1 and x == 3 and z == 1 then
@@ -1127,6 +1190,86 @@ function redraw()
 
    UI.draw_popup()
 
+   -- LFO patch overlay
+   if LFOs.patch_mode and LFOs.data[LFOs.patch_mode] then
+      local lfo = LFOs.data[LFOs.patch_mode]
+      local info = LFOs.get_cursor_info()
+
+      s.level(0)
+      s.rect(4, 8, 120, 50)
+      s.fill()
+      s.level(15)
+      s.rect(4, 8, 120, 50)
+      s.stroke()
+
+      -- Title: LFO N + freq
+      s.level(15)
+      s.move(8, 18)
+      s.text("LFO " .. LFOs.patch_mode)
+      s.move(118, 18)
+      s.text_right(string.format("%.2fHz", lfo.freq))
+
+      -- Scope
+      local sx, sy, sw, sh = 10, 22, 100, 12
+      s.level(4)
+      s.rect(sx, sy, sw, sh)
+      s.stroke()
+      local hist = lfo.history
+      local head = lfo.history_head
+      s.level(15)
+      local last_px, last_py = nil, nil
+      for i = 0, sw - 1 do
+         local idx = (head - 1 - i - 1) % 128 + 1
+         local val = util.clamp(hist[idx], -1, 1)
+         local px = sx + sw - i
+         local py = sy + sh - (util.clamp((val + 1) / 2, 0, 1) * sh)
+         if last_px then
+            s.move(last_px, last_py)
+            s.line(px, py)
+         else
+            s.pixel(px, py)
+         end
+         last_px = px
+         last_py = py
+      end
+      s.stroke()
+
+      -- Menu items: shape, noise, assignments
+      local y_pos = 40
+      local max_items = math.min(info.max_cursor, 4)
+      for item_idx = 1, max_items do
+         local is_selected = (item_idx == info.cursor)
+         s.level(is_selected and 15 or 4)
+         s.move(8, y_pos)
+         if item_idx == 1 then
+            local marker = is_selected and "> " or "  "
+            s.text(marker .. "shape   " .. string.format("%.2f", lfo.shape))
+         elseif item_idx == 2 then
+            local marker = is_selected and "> " or "  "
+            s.text(marker .. "noise   " .. string.format("%.2f", lfo.noise))
+         else
+            local assign_idx = item_idx - 2
+            local a = lfo.assignments[assign_idx]
+            if a then
+               local marker = is_selected and "> " or "  "
+               local name = a[1]
+               if #name > 10 then name = string.sub(name, 1, 7) .. ".." end
+               s.text(marker .. name .. " " .. string.format("%+.1f%%", a[2] * 100))
+               if is_selected then
+                  s.move(118, y_pos)
+                  s.text_right("[" .. assign_idx .. "/" .. #lfo.assignments .. "]")
+               end
+            end
+         end
+         y_pos = y_pos + 8
+      end
+
+      -- Controls hint
+      s.level(4)
+      s.move(6, 62)
+      s.text("E1:frq E2:sel E3:val K3:± SHFT:del")
+   end
+
    s.update()
    s.ping()
 end
@@ -1235,6 +1378,25 @@ function redraw_grid()
       elseif drone_snaps[i] ~= nil then b = 6
       else b = 2 end
       g:led(x, 8, b)
+   end
+
+   -- LFO LEDs (row 4: cols 1-2, row 5: cols 1-2)
+   for i = 1, 4 do
+      local row = (i <= 2) and 4 or 5
+      local col = (i == 1 or i == 3) and 1 or 2
+      local lfo = LFOs.data[i]
+      local b = 2
+      if lfo then
+         if LFOs.patch_mode == i then
+            b = 14
+         elseif shift_held then
+            local wave = (math.sin(frame * 0.25) + 1) / 2
+            b = 2 + math.floor(6 * wave + 0.5)
+         else
+            b = math.floor(util.linlin(-1, 1, 2, 12, lfo.value))
+         end
+      end
+      g:led(col, row, b)
    end
 
    -- parameter looper LEDs (delegated to Loopers module)
@@ -1378,6 +1540,7 @@ function cleanup()
    for i = 1, 3 do
       if seq_clock_ids[i] then clock.cancel(seq_clock_ids[i]) end
    end
+   LFOs.cleanup()
    Loopers.cleanup()
    Storage.save(playing, hold, Harvest.poly_loop == 1, oct, calc_cycle_len())
    stop_keys()
