@@ -2,7 +2,7 @@
 // a part of Høst
 //
 // v1.3 
-// imminent gloom
+// imminent gloom / Josue Arias
 
 Engine_Harvest : CroneEngine {
    var harvestParameters;
@@ -166,9 +166,10 @@ Engine_Harvest : CroneEngine {
 
       fnNoteOnPoly = {
          arg note, amp, duration;
-         var lowestNote = 10000;
-         var sub = 0;
-         // (harvestParameters.at("synth")++" note_on "++note).postln;
+          var lowestNote = 10000;
+          var sub = 0;
+          var spread, pan;
+          // (harvestParameters.at("synth")++" note_on "++note).postln;
 
          // low-note priority for sub oscillator
          harvestVoicesOn.keysValuesDo({ arg key, syn;
@@ -188,8 +189,8 @@ Engine_Harvest : CroneEngine {
          });
 
           // calculate stereo pan based on spread parameter
-          var spread = harvestParameters.at("spread");
-          var pan = 0;
+          spread = harvestParameters.at("spread");
+          pan = 0;
           if (spread < 0, {
              // random placement: each voice gets a random fixed pan
              pan = (1.0.rand2) * spread.abs;

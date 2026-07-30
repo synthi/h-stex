@@ -20,6 +20,7 @@ engine.name = "Harvest"
     Storage = include("lib/storage")
           UI = include("lib/ui")
          _16n = include("lib/16n")
+    Loopers = include("lib/loopers")
 
 local save_on_exit = true
 
@@ -611,6 +612,9 @@ function init()
       seq_clock_ids[i] = clock.run(function() run_sequencer(i) end)
    end
 
+   -- launch looper clock coroutines
+   Loopers.init()
+
    -- 16n fader controller initialization with soft takeover
    clock.run(function()
       clock.sleep(2.0)
@@ -618,34 +622,21 @@ function init()
          local id = _16n.cc_2_slider_id(msg.cc)
          if not id then return end
 
-         -- fader -> param mapping
-         local fader_map = {
-            [1]  = "drone_timbre",
-            [2]  = "drone_noise",
-            [3]  = "drone_bias",
-            [4]  = "drone_freq",
-            [5]  = "poly_timbre",
-            [6]  = "poly_noise",
-            [7]  = "poly_bias",
-            [8]  = "poly_shape",
-            [9]  = "fx_peak_1",
-            [10] = "fx_peak_2",
-            [11] = "fx_body",
-            [12] = "fx_time",
-            [13] = "poly_max_attack",
-            [14] = "poly_max_release",
-            [15] = "drone_amp",
-            [16] = "poly_amp",
-         }
-         local p_name = fader_map[id]
+         local p_name = Loopers.fader_map[id]
          if not p_name then return end
 
          local p_obj = params:lookup_param(p_name)
          if not p_obj then return end
 
-          -- normalize midi value (0-127) to 0-1
-          local val_norm = util.clamp(msg.val / 127, 0, 1)
+         -- normalize midi value (0-127) to 0-1
+         local val_norm = util.clamp(msg.val / 127, 0, 1)
          local current_norm = params:get_raw(p_name)
+
+         -- notify loopers of fader movement (for recording & playback offset)
+         Loopers.on_fader_move(id, val_norm)
+
+         -- bypass soft takeover during looper rec/overdub
+         if Loopers.recording_active() then fader_latched[id] = true end
 
          -- map through controlspec and back (ncoco pattern)
          local target_real = p_obj.controlspec:map(val_norm)
@@ -767,6 +758,9 @@ g.key = function(x, y, z)
          end
       end
    end
+
+   -- parameter looper buttons (delegated to Loopers module, row 8 cols 7-11)
+   if Loopers.grid_key(x, y, z, shift_held) then return end
 
    -- sequencer buttons (row 8, cols 13-16)
    if y == 8 and x >= 13 and x <= 16 and z == 1 then
@@ -1197,6 +1191,9 @@ function redraw_grid()
       g:led(x, 8, b)
    end
 
+   -- parameter looper LEDs (delegated to Loopers module)
+   Loopers.redraw_grid(g)
+
    -- sequencer LEDs (row 8, cols 13-16)
    for i = 0, 3 do
       local x = 13 + i
@@ -1335,6 +1332,7 @@ function cleanup()
    for i = 1, 4 do
       if seq_clock_ids[i] then clock.cancel(seq_clock_ids[i]) end
    end
+   Loopers.cleanup()
    Storage.save(playing, hold, Harvest.poly_loop == 1, oct, calc_cycle_len())
    stop_keys()
    if save_on_exit then params:write(norns.state.data .. "state.pset") end

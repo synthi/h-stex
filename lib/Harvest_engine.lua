@@ -323,16 +323,27 @@ function Harvest.init(midicontrol)
        end
     }
 
+    params:add{
+       type        = "option",
+       id          = "poly_loop",
+       name        = "Repeter?",
+       options     = {"Nei", "Ja"},
+       default     = 1,
+       action      = function(x)
+          engine.harvest_poly_set("loop", x - 1)
+          Harvest.poly_loop = x - 1
+       end
+    }
+
+-- looper
+   params:add_separator("looper", "LØKKER")
+
    params:add{
       type        = "option",
-      id          = "poly_loop",
-      name        = "Repeter?",
-      options     = {"Nei", "Ja"},
-      default     = 1,
-      action      = function(x)
-         engine.harvest_poly_set("loop", x - 1)
-         Harvest.poly_loop = x - 1
-      end
+      id          = "looper_default_mode",
+      name        = "Looper Modus",
+      options     = {"Spill", "Overdub"},
+      default     = 2,
    }
 
 -- midi
