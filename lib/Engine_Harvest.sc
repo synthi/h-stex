@@ -17,8 +17,9 @@ Engine_Harvest : CroneEngine {
    var pedalSostenutoOn = false;
    var pedalSustainNotes;
    var pedalSostenutoNotes;
-   var harvestPolyphonyMax = 12;
-   var harvestPolyphonyCount = 0;
+    var harvestPolyphonyMax = 12;
+    var harvestPolyphonyCount = 0;
+    var harvestRandOffsets;
 
    *new { arg context, doneCallback;
       ^super.new(context, doneCallback);
@@ -38,10 +39,12 @@ Engine_Harvest : CroneEngine {
          "shape"->0.1,
          "max_attack"->1,
          "max_release"->24,
-         "scale"->1,
-      ]);
+          "scale"->1,
+          "spread"->0,
+       ]);
       harvestVoices = Dictionary.new;
-      harvestVoicesOn = Dictionary.new;
+       harvestVoicesOn = Dictionary.new;
+       harvestRandOffsets = Dictionary.new;
       pedalSustainNotes = Dictionary.new;
       pedalSostenutoNotes = Dictionary.new;
 
@@ -102,7 +105,7 @@ Engine_Harvest : CroneEngine {
 
          lpg = LPF.ar(min, amp.linexp(0, 1, 200, 20000), amp);
 
-         Out.ar(\out.ir(0), Pan2.ar(lpg) * 0.5);
+          Out.ar(\out.ir(0), Pan2.ar(lpg, \pan.kr(0)) * 0.5);
       }).add;
 
       SynthDef(\harvestpoly, {
@@ -149,7 +152,7 @@ Engine_Harvest : CroneEngine {
 
          lpg = LPF.ar(min, env.linexp(0, 1, 200, 20000), env * vel * amp);
 
-         Out.ar(\out.ir(0), Pan2.ar(lpg) * 0.25);
+          Out.ar(\out.ir(0), Pan2.ar(lpg, \pan.kr(0)) * 0.25);
       }).add;
 
       // initialize fx synth and bus
@@ -184,22 +187,37 @@ Engine_Harvest : CroneEngine {
             sub = 1;
          });
 
-         harvestVoices.put(note,
-            Synth.before(harvestFx, "harvestpoly",[
-               \amp, harvestParameters.at("amp"),
-               \out, harvestBus,
-               \freq, (note).midicps,
-               \timbre, harvestParameters.at("timbre"),
-               \noise, harvestParameters.at("noise"),
-               \bias, harvestParameters.at("bias"),
-               \shape, harvestParameters.at("shape"),
-               \loop, harvestParameters.at("loop"),
-               \max_attack, harvestParameters.at("max_attack"),
-               \max_release, harvestParameters.at("max_release"),
-               \scale, harvestParameters.at("scale"),
-               \drift, harvestParameters.at("drift")
-            ]);
-         );
+          // calculate stereo pan based on spread parameter
+          var spread = harvestParameters.at("spread");
+          var pan = 0;
+          if (spread < 0, {
+             // random placement: each voice gets a random fixed pan
+             pan = (1.0.rand2) * spread.abs;
+             harvestRandOffsets.put(note, pan);
+          }, {
+             if (spread > 0, {
+                // orchestral/piano: pan by note pitch, low=left high=right
+                pan = ((note - 60) / 60).clip(-1, 1) * spread;
+             });
+          });
+
+          harvestVoices.put(note,
+             Synth.before(harvestFx, "harvestpoly",[
+                \amp, harvestParameters.at("amp"),
+                \out, harvestBus,
+                \freq, (note).midicps,
+                \timbre, harvestParameters.at("timbre"),
+                \noise, harvestParameters.at("noise"),
+                \bias, harvestParameters.at("bias"),
+                \shape, harvestParameters.at("shape"),
+                \loop, harvestParameters.at("loop"),
+                \max_attack, harvestParameters.at("max_attack"),
+                \max_release, harvestParameters.at("max_release"),
+                \scale, harvestParameters.at("scale"),
+                \drift, harvestParameters.at("drift"),
+                \pan, pan
+             ]);
+          );
          NodeWatcher.register(harvestVoices.at(note));
          fnNoteAdd.(note);
       };
@@ -244,7 +262,8 @@ Engine_Harvest : CroneEngine {
          var lowestNote = 10000;
          // ("harvest_note_off "++note).postln;
 
-         harvestVoicesOn.removeAt(note);
+          harvestVoicesOn.removeAt(note);
+          harvestRandOffsets.removeAt(note);
 
          if (pedalSustainOn == true, {
             pedalSustainNotes.put(note, 1);
@@ -330,8 +349,26 @@ Engine_Harvest : CroneEngine {
          var key = msg[1].asString;
          var val = msg[2];
          harvestParameters.put(key, val);
-         switch (key,
-            "", {}, // add parameters here if you don't want them to change while voice is playing
+          switch (key,
+             "spread", {
+                var spread = val;
+                harvestVoices.keysValuesDo({ arg note, syn;
+                   if (syn.isRunning == true, {
+                      var pan = 0;
+                      if (spread < 0, {
+                         var offset = harvestRandOffsets.at(note) ? (1.0.rand2);
+                         pan = offset * spread.abs;
+                         harvestRandOffsets.put(note, pan);
+                      }, {
+                         if (spread > 0, {
+                            pan = ((note - 60) / 60).clip(-1, 1) * spread;
+                         });
+                      });
+                      syn.set(\pan, pan);
+                   });
+                });
+             },
+             "", {}, // add parameters here if you don't want them to change while voice is playing
             {
                harvestVoices.keysValuesDo({ arg note, syn;
                   if (syn.isRunning == true, {

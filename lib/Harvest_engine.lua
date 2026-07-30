@@ -1,7 +1,7 @@
 -- Harvest_engine
 -- a part of Høst
 --
--- v1.2- Joaue Arias
+-- v1.3- Joaue Arias
 -- v1.1 imminent gloom
 
 local Harvest = {}
@@ -80,17 +80,28 @@ function Harvest.init(midicontrol)
       end
    }
 
-   params:add{
-      type        = "control",
-      id          = "drone_freq",
-      name        = "Frekvens",
-      controlspec = controlspec.new(0.2, 2000, "exp", 0.001, 117, "hz"),
-      action      = function(x)
-         engine.harvest_drone_set("freq", x)
-         Harvest.drone_freq = math.log(x / 0.2) / math.log(2000 / 0.2)
-      end
-   }
-   
+    params:add{
+       type        = "control",
+       id          = "drone_freq",
+       name        = "Frekvens",
+       controlspec = controlspec.new(0.2, 2000, "exp", 0.001, 117, "hz"),
+       action      = function(x)
+          engine.harvest_drone_set("freq", x)
+          Harvest.drone_freq = math.log(x / 0.2) / math.log(2000 / 0.2)
+       end
+    }
+
+    params:add{
+       type        = "control",
+       id          = "drone_pan",
+       name        = "Panorering",
+       controlspec = controlspec.new(-1, 1, "lin", 0.001, 0),
+       action      = function(x)
+          engine.harvest_drone_set("pan", x)
+          Harvest.drone_pan = x
+       end
+    }
+    
 -- poly
    params:add_separator("poly", "LØV")
    
@@ -290,16 +301,27 @@ function Harvest.init(midicontrol)
       end
    }
 
-   params:add{
-      type        = "control",
-      id          = "poly_drift",
-      name        = "Avdrift",
-      controlspec = controlspec.new(0, 1, "lin", 0.001, 0.15),
-      action      = function(x)
-         engine.harvest_poly_set("drift", x)
-         Harvest.poly_drift = x
-      end
-   }
+    params:add{
+       type        = "control",
+       id          = "poly_drift",
+       name        = "Avdrift",
+       controlspec = controlspec.new(0, 1, "lin", 0.001, 0.15),
+       action      = function(x)
+          engine.harvest_poly_set("drift", x)
+          Harvest.poly_drift = x
+       end
+    }
+
+    params:add{
+       type        = "control",
+       id          = "poly_spread",
+       name        = "Spredning",
+       controlspec = controlspec.new(-1, 1, "lin", 0.001, 0),
+       action      = function(x)
+          engine.harvest_poly_set("spread", x)
+          Harvest.poly_spread = x
+       end
+    }
 
    params:add{
       type        = "option",
