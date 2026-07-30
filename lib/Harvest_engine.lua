@@ -171,6 +171,17 @@ function Harvest.init(midicontrol)
        end
     }
 
+    params:add{
+       type        = "control",
+       id          = "poly_drift",
+       name        = "Drift",
+       controlspec = controlspec.new(0, 1, "lin", 0.001, 0.15),
+       action      = function(x)
+          engine.harvest_poly_set("drift", x)
+          Harvest.poly_drift = x
+       end
+    }
+
 -- fx
    params:add_separator("fx_filter_delay", "FX")
    
@@ -311,18 +322,6 @@ function Harvest.init(midicontrol)
 			-- Harvest.poly_scale = x
       end
    }
-
-    params:add{
-       type        = "control",
-       id          = "poly_drift",
-       name        = "Drift",
-       controlspec = controlspec.new(0, 1, "lin", 0.001, 0.15),
-       action      = function(x)
-          engine.harvest_poly_set("drift", x)
-          Harvest.poly_drift = x
-       end
-    }
-
     params:add{
        type        = "option",
        id          = "poly_loop",

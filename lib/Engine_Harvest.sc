@@ -1,7 +1,7 @@
 // Engine_harvest
 // a part of Høst
 //
-// v1.6
+// v1.7 — analog tolerances + LPG + sub drone
 // imminent gloom / Josue Arias
 
 Engine_Harvest : CroneEngine {
@@ -51,115 +51,85 @@ Engine_Harvest : CroneEngine {
       // initialize synth defs
       SynthDef(\harvestfx, {
          var input, body, bodyLag, filter, peak1, peak2, res, delay, time, feedback, mix, gain, dist;
-  
+         // === Analog tolerances (fixed per synth instance) ===
+         var peak1_L_var = Rand(0.98, 1.02);
+         var peak1_R_var = Rand(0.98, 1.02);
+         var peak2_L_var = Rand(0.98, 1.02);
+         var peak2_R_var = Rand(0.98, 1.02);
+         var peak2_offset = Rand(0.99, 1.01);
+         var res_L_var = Rand(0.97, 1.03);
+         var res_R_var = Rand(0.97, 1.03);
+         var delay_L_var = Rand(0.99, 1.01);
+         var delay_R_var = Rand(0.99, 1.01);
+         var fb_L_var = Rand(0.97, 1.03);
+         var fb_R_var = Rand(0.97, 1.03);
+         var fb_lpf_L_var = Rand(0.96, 1.04);
+         var fb_lpf_R_var = Rand(0.96, 1.04);
+         var gain_L_var = Rand(0.98, 1.02);
+         var gain_R_var = Rand(0.98, 1.02);
+         // Thermal drift
+         var thermal = LFNoise2.kr(0.02, 0.005);
+
          input = In.ar(\inBus.ir(10), 2);
 
          body     = \body.kr(0.0);
          res      = LinSelectX.kr(body * 6, [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]) * \res_max.kr(0.5);
          feedback = LinSelectX.kr(body * 6, [0.0, 0.50, 0.99, 0.99, 0.75, 0.55, 0.50]) * \fb_max.kr(1.0);
 
+         // SVF peaks with L/R tolerances
          peak1 = SVF.ar(input, \peak1.kr(115, 0.1).clip(20, 20000), res, 0, 1, 0);
-         peak2 = SVF.ar(input, \peak2.kr(218, 0.1).clip(20, 20000), res, 0, 1, 0);
+         peak1 = [peak1[0] * (1 + thermal), peak1[1] * (1 + thermal)]; // gentle thermal on peaks
+         peak1[0] = SVF.ar(input[0], (\peak1.kr(115, 0.1) * peak1_L_var).clip(20, 20000), res * res_L_var, 0, 1, 0);
+         peak1[1] = SVF.ar(input[1], (\peak1.kr(115, 0.1) * peak1_R_var).clip(20, 20000), res * res_R_var, 0, 1, 0);
+
+         peak2[0] = SVF.ar(input[0], (\peak2.kr(218, 0.1) * peak2_L_var * peak2_offset).clip(20, 20000), res * res_L_var, 0, 1, 0);
+         peak2[1] = SVF.ar(input[1], (\peak2.kr(218, 0.1) * peak2_R_var * peak2_offset).clip(20, 20000), res * res_R_var, 0, 1, 0);
 
          filter = peak1 + peak2;
 
          time = \time.kr(1, 0.25);
          delay = XFade2.ar(filter, input, SelectX.kr(body * 6, [-1, -1, -1, 1, 1, 0, 1]));
-         delay = delay + LPF.ar(LocalIn.ar(2), (4000 - (3000 * time * 0.5)).clip(20, 20000)) * feedback;
-         delay = DelayC.ar(delay, 10, time);
+
+         // Delay with L/R time + feedback LPF tolerances
+         delay[0] = delay[0] + LPF.ar(LocalIn.ar(2)[0], ((4000 - (3000 * time * 0.5)).clip(20, 20000) * fb_lpf_L_var)) * (feedback * fb_L_var);
+         delay[1] = delay[1] + LPF.ar(LocalIn.ar(2)[1], ((4000 - (3000 * time * 0.5)).clip(20, 20000) * fb_lpf_R_var)) * (feedback * fb_R_var);
+
+         delay[0] = DelayC.ar(delay[0], 10, time * delay_L_var);
+         delay[1] = DelayC.ar(delay[1], 10, time * delay_R_var);
          LocalOut.ar(delay);
 
          mix = SelectX.ar(body * 6, [input, filter, filter + delay * 0.7, input + delay * 0.7, (input * 0.7 + filter * 0.5 + delay * 0.5), (input * 0.55 + filter * 0.8 + delay * 0.55), input]);
 
          gain = \gain.kr(1, 0.1);
-         dist = (mix * gain).tanh * (1 / gain.sqrt) * \amp.kr(0.5, 0.1);
+         dist[0] = (mix[0] * gain * gain_L_var).tanh * (1 / gain.sqrt) * \amp.kr(0.5, 0.1);
+         dist[1] = (mix[1] * gain * gain_R_var).tanh * (1 / gain.sqrt) * \amp.kr(0.5, 0.1);
 
          Out.ar(\out.ir(0), dist);
       }).add;
 
       SynthDef(\harvestdrone, {
-         var amp, freq, freq_fm, noise, noise_amt, timbre, drift, pulsewidth;
-         var sine, saw, square, waveform;
-         var bias, bias_neg, bias_pos, fm_amt, fm_mod;
-         var sc_bias, threshold, min, lpg;
-         var noise_out, ringmod, noise_src, dust_amt, dust_trig, dust_env, gated;
-         var wr, wr2, wr3;
-
-         amp = \amp.kr(0.8, 0.1);
-         freq = \freq.kr(100, 0.1);
-         noise = \noise.kr(0.0, 0.1);
-         timbre = \timbre.kr(0.5, 0.1);
-         drift = \drift.kr(0.0, 0.1);
-         bias = \bias.kr(0, 0.1);  // -1 to 1: 0=clean, +=wavefold, -=FM
-
-         // Frequency noise + drift (±25 cents)
-         freq = WhiteNoise.ar(noise) * freq + freq;
-         freq = freq.clip(0, SampleRate.ir * 0.5);
-         freq = freq * (2 ** ((LFNoise2.kr(0.01) * drift * (25/1200)) + (LFNoise2.kr(3.1) * drift * (15/1200))));
-
-         // Bias: split negative (FM) and positive (wavefold)
-         bias_neg = (bias * -1).max(0);  // 0→1 as bias goes 0→-1
-         bias_pos = bias.max(0);          // 0→1 as bias goes 0→+1
-
-         // FM auto-feedback from sine for clean musical FM
-         fm_amt = bias_neg;
-         fm_mod = Delay1.ar(SinOsc.ar(freq)) * fm_amt * 3;
-         freq_fm = freq * (1 + fm_mod);
-
-         // Pulsewidth: limit max to 0.98 to avoid DC silence at timbre=1
-         pulsewidth = LinSelectX.kr(timbre * 2, [0.001, 0.5, 0.98]);
-
-         // Oscillators with FM-modulated frequency
-         sine   = SinOsc.ar(freq_fm);
-         saw    = VarSaw.ar(freq_fm, 0, pulsewidth, 0.61);
-         square = Pulse.ar(freq_fm, pulsewidth, 0.667);
-
-         // Timbre crossfade with wider sine zone
-         waveform = SelectX.ar(((timbre - 0.5) * 1.3 + 0.5).clip(0, 1) * 2, [saw, sine, square]);
-
-         // === Noise section: 3 stages ===
-         noise_amt = noise;
-
-         // Stage 1 (0→0.4): ringmod fade in
-         ringmod = waveform * (1 + PinkNoise.ar(noise_amt.min(0.4) * 3.75)) * 0.5;
-         wr = XFade2.ar(waveform, ringmod, (noise_amt / 0.4).min(1) * 2 - 1);
-
-         // Stage 2 (0.4→0.85): crossfade to continuous noise
-         noise_src = PinkNoise.ar(1);
-         wr2 = XFade2.ar(wr, noise_src, ((noise_amt - 0.4) / 0.45).max(0).min(1) * 2 - 1);
-
-         // Stage 3 (0.85→1): dust progressively gates the noise
-         dust_amt = ((noise_amt - 0.85) / 0.15).max(0).min(1);
-         dust_trig = Dust.ar(20 + (dust_amt * dust_amt * 2000));
-         dust_env = Decay2.ar(dust_trig, 0.001, 0.005 + (dust_amt * 0.02));
-         gated = noise_src * (1 - dust_amt) + (noise_src * dust_env * dust_amt * 2);
-         wr3 = XFade2.ar(wr2, gated, dust_amt * 2 - 1);
-
-         noise_out = wr3;
-         waveform = noise_out.clip(-1, 1);
-
-         // === Wavefolding (bias > 0): half-wave rect → distortion ===
-         // Map bias_pos 0→1 to old SC bias 0.5→1 (where folding actually happens)
-         sc_bias = 0.5 + (bias_pos * 0.5);
-         threshold = -1 * (sc_bias * 2 - 1);
-         min = LeakDC.ar((waveform > threshold * waveform) + (waveform <= threshold * threshold));
-
-         lpg = LPF.ar(min, amp.linexp(0, 1, 200, 20000), amp);
-
-         Out.ar(\out.ir(0), Pan2.ar(lpg, \pan.kr(0)) * 0.5);
-      }).add;
-
-      SynthDef(\harvestpoly, {
-         var amp, freq, freq_fm, noise, noise_amt, timbre, drift, pulsewidth;
+         var amp, amp_env, filter_env, freq, freq_fm, noise, noise_amt, timbre, drift, pulsewidth;
          var sine, saw, square, waveform;
          var bias, bias_neg, bias_pos, fm_amt, fm_mod;
          var sub, sub_amt;
-         var sc_bias, threshold, min;
+         var sc_bias, threshold, min, lpg;
          var noise_out, ringmod, noise_src, dust_amt, dust_trig, dust_env, gated;
          var wr, wr2, wr3;
-         var vel, gate, loop, shape, scale, max_attack, max_release;
-         var attack, release, curve, asr, ararar, env, lpg;
-         var att1, att2, att3, rel1, rel2, rel3, cur1, cur2, cur3, w1, w2, w3;
+         // === Analog tolerances (fixed per synth instance) ===
+         var sine_detune  = Rand(-0.001, 0.001);    // ±0.1% (2 cents)
+         var saw_detune   = Rand(-0.003, 0.003);    // ±0.3% (5 cents)
+         var square_detune = Rand(-0.003, 0.003);   // ±0.3% (5 cents)
+         var sine_gain   = Rand(0.98, 1.02);        // ±2%
+         var saw_gain    = Rand(0.97, 1.03);         // ±3%
+         var square_gain = Rand(0.97, 1.03);         // ±3%
+         var pw_L_var    = Rand(0.995, 1.005);       // ±0.5%
+         var pw_R_var    = Rand(0.995, 1.005);       // ±0.5%
+         var lpg_L_var   = Rand(0.95, 1.05);         // drone LPF ±5%
+         var lpg_R_var   = Rand(0.95, 1.05);
+         var bal_L_var   = Rand(0.98, 1.02);         // amp balance ±2%
+         var bal_R_var   = Rand(0.98, 1.02);
+         // Thermal drift
+         var thermal = LFNoise2.kr(0.02, 0.005);     // ±0.5%
 
          amp = \amp.kr(0.8, 0.1);
          freq = \freq.kr(100, 0.1);
@@ -185,13 +155,114 @@ Engine_Harvest : CroneEngine {
          // Sub: starts appearing at bias=-0.3, full at bias=-0.96 (overlaps with FM)
          sub_amt = ((bias_neg - 0.3) * 1.5).max(0).min(1);
 
-         // Pulsewidth: limit max to 0.98 to avoid DC silence at timbre=1
+         // Pulsewidth with L/R asymmetry
          pulsewidth = LinSelectX.kr(timbre * 2, [0.001, 0.5, 0.98]);
 
-         // Oscillators with FM-modulated frequency
-         sine   = SinOsc.ar(freq_fm);
-         saw    = VarSaw.ar(freq_fm, 0, pulsewidth, 0.61);
-         square = Pulse.ar(freq_fm, pulsewidth, 0.667);
+         // Oscillators with FM-modulated frequency + individual detune
+         sine   = SinOsc.ar(freq_fm * (1 + sine_detune)) * sine_gain;
+         saw    = VarSaw.ar(freq_fm * (1 + saw_detune), 0, pulsewidth * pw_L_var, 0.61 * saw_gain);
+         square = Pulse.ar(freq_fm * (1 + square_detune), pulsewidth * pw_R_var, 0.667 * square_gain);
+
+         // Timbre crossfade with wider sine zone
+         waveform = SelectX.ar(((timbre - 0.5) * 1.3 + 0.5).clip(0, 1) * 2, [saw, sine, square]);
+
+         // Sub oscillator (clean freq, one octave down)
+         sub = SinOsc.ar(freq * 0.5) * sub_amt * 0.5;
+         waveform = waveform + sub;
+
+         // === Noise section: 3 stages ===
+         noise_amt = noise;
+
+         // Stage 1 (0→0.4): ringmod fade in
+         ringmod = waveform * (1 + PinkNoise.ar(noise_amt.min(0.4) * 3.75)) * 0.5;
+         wr = XFade2.ar(waveform, ringmod, (noise_amt / 0.4).min(1) * 2 - 1);
+
+         // Stage 2 (0.4→0.85): crossfade to continuous noise
+         noise_src = PinkNoise.ar(1);
+         wr2 = XFade2.ar(wr, noise_src, ((noise_amt - 0.4) / 0.45).max(0).min(1) * 2 - 1);
+
+         // Stage 3 (0.85→1): dust progressively gates the noise
+         dust_amt = ((noise_amt - 0.85) / 0.15).max(0).min(1);
+         dust_trig = Dust.ar(20 + (dust_amt * dust_amt * 2000));
+         dust_env = Decay2.ar(dust_trig, 0.001, 0.005 + (dust_amt * 0.02));
+         gated = noise_src * (1 - dust_amt) + (noise_src * dust_env * dust_amt * 2);
+         wr3 = XFade2.ar(wr2, gated, dust_amt * 2 - 1);
+
+         noise_out = wr3;
+         waveform = noise_out.clip(-1, 1);
+
+         // === Wavefolding (bias > 0): half-wave rect → distortion ===
+         sc_bias = 0.5 + (bias_pos * 0.5);
+         threshold = -1 * (sc_bias * 2 - 1);
+         min = LeakDC.ar((waveform > threshold * waveform) + (waveform <= threshold * threshold));
+
+         // LPG: filter closes faster than amplitude (amp²), range 210–18.5kHz
+         amp_env = amp;
+         filter_env = amp_env * amp_env;
+         lpg = LPF.ar(min, filter_env.linexp(0, 1, 210, 18500) * [lpg_L_var + thermal, lpg_R_var + thermal], amp_env);
+
+         Out.ar(\out.ir(0), Pan2.ar(lpg * [bal_L_var, bal_R_var], \pan.kr(0)) * 0.5);
+      }).add;
+
+      SynthDef(\harvestpoly, {
+         var amp, amp_env, filter_env, freq, freq_fm, noise, noise_amt, timbre, drift, pulsewidth;
+         var sine, saw, square, waveform;
+         var bias, bias_neg, bias_pos, fm_amt, fm_mod;
+         var sub, sub_amt;
+         var sc_bias, threshold, min;
+         var noise_out, ringmod, noise_src, dust_amt, dust_trig, dust_env, gated;
+         var wr, wr2, wr3;
+         var vel, gate, loop, shape, scale, max_attack, max_release;
+         var attack, release, curve, asr, ararar, env, lpg;
+         var att1, att2, att3, rel1, rel2, rel3, cur1, cur2, cur3, w1, w2, w3;
+         // === Analog tolerances (fixed per voice) ===
+         var sine_detune  = Rand(-0.001, 0.001);    // ±0.1% (2 cents)
+         var saw_detune   = Rand(-0.003, 0.003);    // ±0.3% (5 cents)
+         var square_detune = Rand(-0.003, 0.003);   // ±0.3% (5 cents)
+         var sine_gain   = Rand(0.98, 1.02);        // ±2%
+         var saw_gain    = Rand(0.97, 1.03);         // ±3%
+         var square_gain = Rand(0.97, 1.03);         // ±3%
+         var pw_L_var    = Rand(0.995, 1.005);       // ±0.5%
+         var pw_R_var    = Rand(0.995, 1.005);       // ±0.5%
+         var lpg_L_var   = Rand(0.97, 1.03);         // poly LPF ±3% (more precise than drone)
+         var lpg_R_var   = Rand(0.97, 1.03);
+         var bal_L_var   = Rand(0.98, 1.02);         // amp balance ±2%
+         var bal_R_var   = Rand(0.98, 1.02);
+         var voice_gain  = Rand(0.97, 1.03);          // per-voice gain ±3%
+         // Thermal drift
+         var thermal = LFNoise2.kr(0.02, 0.005);     // ±0.5%
+
+         amp = \amp.kr(0.8, 0.1);
+         freq = \freq.kr(100, 0.1);
+         noise = \noise.kr(0.0, 0.1);
+         timbre = \timbre.kr(0.5, 0.1);
+         drift = \drift.kr(0.0, 0.1);
+         bias = \bias.kr(0, 0.1);  // -1 to 1: 0=clean, +=wavefold, -=FM+sub
+
+         // Frequency noise + drift (±25 cents)
+         freq = WhiteNoise.ar(noise) * freq + freq;
+         freq = freq.clip(0, SampleRate.ir * 0.5);
+         freq = freq * (2 ** ((LFNoise2.kr(0.01) * drift * (25/1200)) + (LFNoise2.kr(3.1) * drift * (15/1200))));
+
+         // Bias: split negative (FM+sub) and positive (wavefold)
+         bias_neg = (bias * -1).max(0);  // 0→1 as bias goes 0→-1
+         bias_pos = bias.max(0);          // 0→1 as bias goes 0→+1
+
+         // FM: ramps 0→1 between bias 0 and -0.66
+         fm_amt = (bias_neg * 1.5).min(1);
+         fm_mod = Delay1.ar(SinOsc.ar(freq)) * fm_amt * 3;
+         freq_fm = freq * (1 + fm_mod);
+
+         // Sub: starts appearing at bias=-0.3, full at bias=-0.96 (overlaps with FM)
+         sub_amt = ((bias_neg - 0.3) * 1.5).max(0).min(1);
+
+         // Pulsewidth with L/R asymmetry
+         pulsewidth = LinSelectX.kr(timbre * 2, [0.001, 0.5, 0.98]);
+
+         // Oscillators with FM-modulated frequency + individual detune
+         sine   = SinOsc.ar(freq_fm * (1 + sine_detune)) * sine_gain;
+         saw    = VarSaw.ar(freq_fm * (1 + saw_detune), 0, pulsewidth * pw_L_var, 0.61 * saw_gain);
+         square = Pulse.ar(freq_fm * (1 + square_detune), pulsewidth * pw_R_var, 0.667 * square_gain);
 
          // Timbre crossfade with wider sine zone
          waveform = SelectX.ar(((timbre - 0.5) * 1.3 + 0.5).clip(0, 1) * 2, [saw, sine, square]);
@@ -252,9 +323,12 @@ Engine_Harvest : CroneEngine {
          ararar = EnvGen.kr(Env.new([0, 1, 0, 1, 0], [attack, release, attack, release], releaseNode: 3, loopNode: 1, curve: curve), gate, doneAction: 2);
          env    = LinSelectX.kr(loop.lag((release * scale).clip(0.01, release)), [asr, ararar]);
 
-         lpg = LPF.ar(min, env.linexp(0, 1, 200, 20000), env * vel * amp);
+         // LPG: filter closes faster than amplitude (amp²), range 210–18.5kHz
+         amp_env = env * vel * amp;
+         filter_env = env * (amp * amp);
+         lpg = LPF.ar(min, filter_env.linexp(0, 1, 210, 18500) * [lpg_L_var + thermal, lpg_R_var + thermal], amp_env * voice_gain);
 
-         Out.ar(\out.ir(0), Pan2.ar(lpg, \pan.kr(0)) * 0.25);
+         Out.ar(\out.ir(0), Pan2.ar(lpg * [bal_L_var, bal_R_var], \pan.kr(0)) * 0.25);
       }).add;
 
       // initialize fx synth and bus

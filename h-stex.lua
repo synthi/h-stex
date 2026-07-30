@@ -1,6 +1,6 @@
 --
 --  A expanded universe by Joaue Arias
---  v2.6 - Støy EX
+--  v2.7 - Støy EX
 --      .                   
 --                         
 --          .          .     
