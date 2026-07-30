@@ -1,8 +1,8 @@
 -- Harvest_engine
 -- a part of Høst
 --
--- v1.5- Joaue Arias
--- v1.1 imminent gloom
+-- v1.6- Joaue Arias
+-- v1.5 imminent gloom
 
 local Harvest = {}
 
@@ -58,16 +58,16 @@ function Harvest.init(midicontrol)
       end
    }
 
-   params:add{
-      type        = "control",
-      id          = "drone_bias",
-      name        = "Threshold",
-      controlspec = controlspec.new(0, 1, "lin", 0.001, 0),
-      action      = function(x)
-         engine.harvest_drone_set("bias", x)
-			Harvest.drone_bias = x
-      end
-   }
+    params:add{
+       type        = "control",
+       id          = "drone_bias",
+       name        = "Bias",
+       controlspec = controlspec.new(-1, 1, "lin", 0.001, 0),
+       action      = function(x)
+          engine.harvest_drone_set("bias", x)
+          Harvest.drone_bias = x
+       end
+    }
 
    params:add{
       type        = "control",
@@ -138,16 +138,16 @@ function Harvest.init(midicontrol)
       end
    }
 
-   params:add{
-      type        = "control",
-      id          = "poly_bias",
-      name        = "Threshold",
-      controlspec = controlspec.new(0, 1, "lin", 0.001, 0.6),
-      action      = function(x)
-         engine.harvest_poly_set("bias", x)
-			   Harvest.poly_bias = x
-      end
-   }
+    params:add{
+       type        = "control",
+       id          = "poly_bias",
+       name        = "Bias",
+       controlspec = controlspec.new(-1, 1, "lin", 0.001, 0),
+       action      = function(x)
+          engine.harvest_poly_set("bias", x)
+          Harvest.poly_bias = x
+       end
+    }
 
    params:add{
       type        = "control",

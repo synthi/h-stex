@@ -1,6 +1,6 @@
 --
 --  A expanded universe by Joaue Arias
---  v2.5 - Støy EX
+--  v2.6 - Støy EX
 --      .                   
 --                         
 --          .          .     
@@ -413,7 +413,7 @@ function init()
       type = "group",
       id   = "harvest",
       name = "HØST",
-      n    = 42
+      n    = 40
    }
 
    params:add_separator("kontroll", "CONTROL")
@@ -872,14 +872,14 @@ g.key = function(x, y, z)
    if x == 1 and y == 1 then
       if z == 1 then
          if shift_held then
-            if params:get("poly_hold") == 2 then
-               sostenuto = not sostenuto
-            params:set("sostenuto", sostenuto and 2 or 1)
-            end
-         elseif params:get("poly_hold") == 2 then
+             if params:get("poly_hold") == 2 then
+                sostenuto = not sostenuto
+                params:set("sostenuto", sostenuto and 2 or 1)
+             end
+          elseif params:get("poly_hold") == 2 then
              params:set("poly_hold", 1)
              sostenuto = false
-          params:set("sostenuto", 1)
+             params:set("sostenuto", 1)
              stop_keys()
          else
             params:set("poly_hold", 2)

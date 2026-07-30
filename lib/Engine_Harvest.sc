@@ -1,7 +1,7 @@
 // Engine_harvest
 // a part of Høst
 //
-// v1.5 
+// v1.6
 // imminent gloom / Josue Arias
 
 Engine_Harvest : CroneEngine {
@@ -33,7 +33,7 @@ Engine_Harvest : CroneEngine {
          "drift"->0.0,
          "timbre"->0.2,
          "noise"->0.3,
-         "bias"->0.6,
+         "bias"->0,
          "freq"->100.0,
          "loop"->0.0,
          "shape"->0.1,
@@ -78,62 +78,155 @@ Engine_Harvest : CroneEngine {
       }).add;
 
       SynthDef(\harvestdrone, {
-         var amp, freq, noise, timbre, drift, pulsewidth, sine, saw, square, waveform, threshold, min, lpg;
+         var amp, freq, freq_fm, noise, noise_amt, timbre, drift, pulsewidth;
+         var sine, saw, square, waveform;
+         var bias, bias_neg, bias_pos, fm_amt, fm_mod;
+         var sc_bias, threshold, min, lpg;
+         var noise_out, ringmod, noise_src, dust_amt, dust_trig, dust_env, gated;
+         var wr, wr2, wr3;
 
          amp = \amp.kr(0.8, 0.1);
          freq = \freq.kr(100, 0.1);
          noise = \noise.kr(0.0, 0.1);
          timbre = \timbre.kr(0.5, 0.1);
          drift = \drift.kr(0.0, 0.1);
+         bias = \bias.kr(0, 0.1);  // -1 to 1: 0=clean, +=wavefold, -=FM
 
+         // Frequency noise + drift (±25 cents)
          freq = WhiteNoise.ar(noise) * freq + freq;
          freq = freq.clip(0, SampleRate.ir * 0.5);
-         freq = freq * (2 ** ((LFNoise2.kr(0.01) * drift * (6/1200)) + (LFNoise2.kr(3.1) * drift * (3/1200))));
+         freq = freq * (2 ** ((LFNoise2.kr(0.01) * drift * (25/1200)) + (LFNoise2.kr(3.1) * drift * (15/1200))));
 
-         pulsewidth = LinSelectX.kr(timbre * 2, [0.001, 0.5, 1]);
-         
-         sine   = SinOsc.ar(freq);
-         saw    = VarSaw.ar(freq, 0, pulsewidth, 0.61);
-         square = Pulse.ar(freq, pulsewidth, 0.667);
+         // Bias: split negative (FM) and positive (wavefold)
+         bias_neg = (bias * -1).max(0);  // 0→1 as bias goes 0→-1
+         bias_pos = bias.max(0);          // 0→1 as bias goes 0→+1
 
-         waveform = SelectX.ar(timbre * 2, [saw, sine, square]);
-         waveform = SelectX.ar( noise * 2, [waveform, waveform * PinkNoise.ar(noise * 3.5, 1), PinkNoise.ar(3.5)]);
-         waveform = waveform.clip(-1, 1);
-         
-         threshold = -1 * (\bias.kr(0, 0.1) * 2 - 1);
+         // FM auto-feedback from sine for clean musical FM
+         fm_amt = bias_neg;
+         fm_mod = Delay1.ar(SinOsc.ar(freq)) * fm_amt * 3;
+         freq_fm = freq * (1 + fm_mod);
+
+         // Pulsewidth: limit max to 0.98 to avoid DC silence at timbre=1
+         pulsewidth = LinSelectX.kr(timbre * 2, [0.001, 0.5, 0.98]);
+
+         // Oscillators with FM-modulated frequency
+         sine   = SinOsc.ar(freq_fm);
+         saw    = VarSaw.ar(freq_fm, 0, pulsewidth, 0.61);
+         square = Pulse.ar(freq_fm, pulsewidth, 0.667);
+
+         // Timbre crossfade with wider sine zone
+         waveform = SelectX.ar(((timbre - 0.5) * 1.3 + 0.5).clip(0, 1) * 2, [saw, sine, square]);
+
+         // === Noise section: 3 stages ===
+         noise_amt = noise;
+
+         // Stage 1 (0→0.4): ringmod fade in
+         ringmod = waveform * (1 + PinkNoise.ar(noise_amt.min(0.4) * 3.75)) * 0.5;
+         wr = XFade2.ar(waveform, ringmod, (noise_amt / 0.4).min(1) * 2 - 1);
+
+         // Stage 2 (0.4→0.85): crossfade to continuous noise
+         noise_src = PinkNoise.ar(1);
+         wr2 = XFade2.ar(wr, noise_src, ((noise_amt - 0.4) / 0.45).max(0).min(1) * 2 - 1);
+
+         // Stage 3 (0.85→1): dust progressively gates the noise
+         dust_amt = ((noise_amt - 0.85) / 0.15).max(0).min(1);
+         dust_trig = Dust.ar(20 + (dust_amt * dust_amt * 2000));
+         dust_env = Decay2.ar(dust_trig, 0.001, 0.005 + (dust_amt * 0.02));
+         gated = noise_src * (1 - dust_amt) + (noise_src * dust_env * dust_amt * 2);
+         wr3 = XFade2.ar(wr2, gated, dust_amt * 2 - 1);
+
+         noise_out = wr3;
+         waveform = noise_out.clip(-1, 1);
+
+         // === Wavefolding (bias > 0): half-wave rect → distortion ===
+         // Map bias_pos 0→1 to old SC bias 0.5→1 (where folding actually happens)
+         sc_bias = 0.5 + (bias_pos * 0.5);
+         threshold = -1 * (sc_bias * 2 - 1);
          min = LeakDC.ar((waveform > threshold * waveform) + (waveform <= threshold * threshold));
 
          lpg = LPF.ar(min, amp.linexp(0, 1, 200, 20000), amp);
 
-          Out.ar(\out.ir(0), Pan2.ar(lpg, \pan.kr(0)) * 0.5);
+         Out.ar(\out.ir(0), Pan2.ar(lpg, \pan.kr(0)) * 0.5);
       }).add;
 
       SynthDef(\harvestpoly, {
-         var amp, freq, noise, timbre, pulsewidth, sine, saw, square, waveform, bias, threshold, min, vel, gate, loop, shape, scale, drift, max_attack, max_release, attack, release, curve, asr, ararar, env, lpg;
+         var amp, freq, freq_fm, noise, noise_amt, timbre, drift, pulsewidth;
+         var sine, saw, square, waveform;
+         var bias, bias_neg, bias_pos, fm_amt, fm_mod;
+         var sub, sub_amt;
+         var sc_bias, threshold, min;
+         var noise_out, ringmod, noise_src, dust_amt, dust_trig, dust_env, gated;
+         var wr, wr2, wr3;
+         var vel, gate, loop, shape, scale, max_attack, max_release;
+         var attack, release, curve, asr, ararar, env, lpg;
+         var att1, att2, att3, rel1, rel2, rel3, cur1, cur2, cur3, w1, w2, w3;
 
          amp = \amp.kr(0.8, 0.1);
          freq = \freq.kr(100, 0.1);
          noise = \noise.kr(0.0, 0.1);
          timbre = \timbre.kr(0.5, 0.1);
          drift = \drift.kr(0.0, 0.1);
+         bias = \bias.kr(0, 0.1);  // -1 to 1: 0=clean, +=wavefold, -=FM+sub
 
+         // Frequency noise + drift (±25 cents)
          freq = WhiteNoise.ar(noise) * freq + freq;
          freq = freq.clip(0, SampleRate.ir * 0.5);
-         freq = freq * (2 ** ((LFNoise2.kr(0.01) * drift * (6/1200)) + (LFNoise2.kr(3.1) * drift * (3/1200))));
+         freq = freq * (2 ** ((LFNoise2.kr(0.01) * drift * (25/1200)) + (LFNoise2.kr(3.1) * drift * (15/1200))));
 
-         pulsewidth = LinSelectX.kr(timbre * 2, [0.001, 0.5, 1]);
-         
-         sine   = SinOsc.ar(freq);
-         saw    = VarSaw.ar(freq, 0, pulsewidth, 0.61);
-         square = Pulse.ar(freq, pulsewidth, 0.667);
+         // Bias: split negative (FM+sub) and positive (wavefold)
+         bias_neg = (bias * -1).max(0);  // 0→1 as bias goes 0→-1
+         bias_pos = bias.max(0);          // 0→1 as bias goes 0→+1
 
-         waveform = SelectX.ar(timbre * 2, [saw, sine, square]);
-         waveform = SelectX.ar( noise * 2, [waveform, waveform * PinkNoise.ar(noise * 3.5, 1), PinkNoise.ar(3.5)]);
-         waveform = waveform.clip(-1, 1);
-         
-         threshold = -1 * (\bias.kr(1.0, 0.1) * 2 - 1);
+         // FM: ramps 0→1 between bias 0 and -0.66
+         fm_amt = (bias_neg * 1.5).min(1);
+         fm_mod = Delay1.ar(SinOsc.ar(freq)) * fm_amt * 3;
+         freq_fm = freq * (1 + fm_mod);
+
+         // Sub: starts appearing at bias=-0.3, full at bias=-0.96 (overlaps with FM)
+         sub_amt = ((bias_neg - 0.3) * 1.5).max(0).min(1);
+
+         // Pulsewidth: limit max to 0.98 to avoid DC silence at timbre=1
+         pulsewidth = LinSelectX.kr(timbre * 2, [0.001, 0.5, 0.98]);
+
+         // Oscillators with FM-modulated frequency
+         sine   = SinOsc.ar(freq_fm);
+         saw    = VarSaw.ar(freq_fm, 0, pulsewidth, 0.61);
+         square = Pulse.ar(freq_fm, pulsewidth, 0.667);
+
+         // Timbre crossfade with wider sine zone
+         waveform = SelectX.ar(((timbre - 0.5) * 1.3 + 0.5).clip(0, 1) * 2, [saw, sine, square]);
+
+         // Sub oscillator (clean freq, one octave down)
+         sub = SinOsc.ar(freq * 0.5) * sub_amt * 0.5;
+         waveform = waveform + sub;
+
+         // === Noise section: 3 stages ===
+         noise_amt = noise;
+
+         // Stage 1 (0→0.4): ringmod fade in
+         ringmod = waveform * (1 + PinkNoise.ar(noise_amt.min(0.4) * 3.75)) * 0.5;
+         wr = XFade2.ar(waveform, ringmod, (noise_amt / 0.4).min(1) * 2 - 1);
+
+         // Stage 2 (0.4→0.85): crossfade to continuous noise
+         noise_src = PinkNoise.ar(1);
+         wr2 = XFade2.ar(wr, noise_src, ((noise_amt - 0.4) / 0.45).max(0).min(1) * 2 - 1);
+
+         // Stage 3 (0.85→1): dust progressively gates the noise
+         dust_amt = ((noise_amt - 0.85) / 0.15).max(0).min(1);
+         dust_trig = Dust.ar(20 + (dust_amt * dust_amt * 2000));
+         dust_env = Decay2.ar(dust_trig, 0.001, 0.005 + (dust_amt * 0.02));
+         gated = noise_src * (1 - dust_amt) + (noise_src * dust_env * dust_amt * 2);
+         wr3 = XFade2.ar(wr2, gated, dust_amt * 2 - 1);
+
+         noise_out = wr3;
+         waveform = noise_out.clip(-1, 1);
+
+         // === Wavefolding (bias > 0): half-wave rect → distortion ===
+         sc_bias = 0.5 + (bias_pos * 0.5);
+         threshold = -1 * (sc_bias * 2 - 1);
          min = LeakDC.ar((waveform > threshold * waveform) + (waveform <= threshold * threshold));
 
+         // === Continuous shape interpolation ===
          vel =    \vel.kr(1.0);
          gate =    \gate.kr(1.0);
          loop =     \loop.kr(0);
@@ -142,9 +235,18 @@ Engine_Harvest : CroneEngine {
          max_release = \max_release.kr(3, 0.1);
          scale = \scale.kr(1, 0.1);
 
-         attack  = (LinSelectX.kr(shape * 3, [0.01, 0.01, max_attack, max_attack]) * scale).clip(0.01, max_attack);
-         release = (LinSelectX.kr(shape * 3, [0.01, max_release, max_release, 0.01]) * scale).clip(0.01, max_release);
-         curve   =  LinSelectX.kr(shape * 3, [-2, -0.5, 0, 0]);
+         // Three envelope presets with smooth triangular blending
+         att1 = 0.01;        rel1 = max_release; cur1 = -2;    // zone 1: snappy attack, long release
+         att2 = max_attack;  rel2 = max_release; cur2 = -0.5;  // zone 2: slow attack, long release (pad)
+         att3 = max_attack;  rel3 = 0.01;        cur3 = 0;     // zone 3: slow attack, snappy release
+
+         w1 = (1 - (shape * 3).min(1)).max(0);
+         w2 = (1 - ((shape - 0.33) * 3).abs()).max(0).min(1);
+         w3 = ((shape - 0.66) * 3).max(0).min(1);
+
+         attack  = ((att1 * w1 + att2 * w2 + att3 * w3) * scale).clip(0.01, max_attack);
+         release = ((rel1 * w1 + rel2 * w2 + rel3 * w3) * scale).clip(0.01, max_release);
+         curve   = (cur1 * w1 + cur2 * w2 + cur3 * w3);
 
          asr    = EnvGen.kr(Env.asr(attack, 1, release, curve: curve), gate, doneAction: 2);
          ararar = EnvGen.kr(Env.new([0, 1, 0, 1, 0], [attack, release, attack, release], releaseNode: 3, loopNode: 1, curve: curve), gate, doneAction: 2);
@@ -152,7 +254,7 @@ Engine_Harvest : CroneEngine {
 
          lpg = LPF.ar(min, env.linexp(0, 1, 200, 20000), env * vel * amp);
 
-          Out.ar(\out.ir(0), Pan2.ar(lpg, \pan.kr(0)) * 0.25);
+         Out.ar(\out.ir(0), Pan2.ar(lpg, \pan.kr(0)) * 0.25);
       }).add;
 
       // initialize fx synth and bus
@@ -169,7 +271,6 @@ Engine_Harvest : CroneEngine {
           var lowestNote = 10000;
           var sub = 0;
           var spread, pan;
-          // (harvestParameters.at("synth")++" note_on "++note).postln;
 
          // low-note priority for sub oscillator
          harvestVoicesOn.keysValuesDo({ arg key, syn;
@@ -245,14 +346,12 @@ Engine_Harvest : CroneEngine {
       // intialize helper functions
       fnNoteOn = {
          arg note, amp, duration;
-         // ("note on: "++note).postln;
          fnNoteOnPoly.(note, amp, duration);
       };
 
       fnNoteOff = {
          arg note;
-         // ("note off: "++note).postln;
-         // remove it it hasn't already been removed	and synth gone
+         // remove it it hasn't already been removed and synth gone
          if ((harvestVoices.at(note) == nil) || ((harvestVoices.at(note).isRunning == false) && (harvestVoicesOn.at(note) == nil)),{},{
             fnNoteOffPoly.(note);
          });
@@ -261,7 +360,6 @@ Engine_Harvest : CroneEngine {
       fnNoteOffPoly = {
          arg note;
          var lowestNote = 10000;
-         // ("harvest_note_off "++note).postln;
 
           harvestVoicesOn.removeAt(note);
           harvestRandOffsets.removeAt(note);
@@ -284,7 +382,6 @@ Engine_Harvest : CroneEngine {
          var note = msg[1];
          if (harvestVoices.at(note) != nil, {
             if (harvestVoices.at(note).isRunning == true, {
-               // (harvestParameters.at("synth")++" retrigger "++note).postln;
                harvestVoices.at(note).set(\gate, 0);
             });
          });
