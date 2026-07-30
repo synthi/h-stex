@@ -49,7 +49,7 @@ end
 -- @param loop         boolean
 -- @param oct          number (0..4)
 -- @param cycle_len    number (pre-calculated envelope cycle length for loop)
-function Storage.save_pset(number, playing, hold, loop, oct, cycle_len, sequencers, drone_snaps, active_drone_snap, loopers, lfos_state)
+function Storage.save_pset(number, playing, hold, loop, oct, cycle_len, sequencers, drone_snaps, active_drone_snap, loopers)
    if not number then return end
    if not util.file_exists(_path.data .. "h-stex") then
       util.make_dir(_path.data .. "h-stex")
@@ -77,7 +77,6 @@ function Storage.save_pset(number, playing, hold, loop, oct, cycle_len, sequence
    end
     data.drone_snaps = drone_snaps or {nil, nil, nil, nil}
     data.active_drone_snap = active_drone_snap or 0
-    data.lfos = lfos_state
     if loopers then
        data.loopers = {}
        for i = 1, 6 do

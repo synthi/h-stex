@@ -1,10 +1,8 @@
 -- lib/loopers.lua
 -- Parameter loopers for 16n fader automation
 -- Records and plays back fader movements as relative offsets
--- Publishes to ModBus at 120Hz
 
 local Loopers = {}
-local ModBus = include("lib/modbus")
 
 -- fader → param mapping (shared with 16n integration)
 Loopers.fader_map = {
@@ -29,7 +27,7 @@ Loopers.fader_map = {
    [19] = "poly_scale",
 }
 
-Loopers.sample_rate = 1/120  -- 120Hz (sincronizado con ModBus y LFOs)
+Loopers.sample_rate = 0.01  -- 100Hz (10ms)
 Loopers.loopers = {}
 Loopers.clock_ids = {}
 Loopers.fader_current = {}
@@ -273,7 +271,6 @@ function Loopers.cleanup()
          Loopers.clock_ids[i] = nil
       end
       Loopers.loopers[i].state = 0
-      ModBus.clear_source("looper" .. i)
    end
 end
 
@@ -392,9 +389,7 @@ function Loopers.run(id)
                         local base = Loopers.fader_current[fid] or 0
                         local target_norm = util.clamp(base + total_delta, 0, 1)
                         local target_val = p_obj.controlspec:map(target_norm)
-                        local base_val = ModBus.get_base(p_name) or p_obj:get()
-                        local contrib = target_val - base_val
-                        ModBus.set_contrib("looper" .. id, p_name, contrib)
+                        params:set(p_name, target_val)
                      end
                   end
                end
