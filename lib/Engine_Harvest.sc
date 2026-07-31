@@ -312,18 +312,10 @@ Engine_Harvest : CroneEngine {
          max_release = \max_release.kr(3, 0.1);
          scale = \scale.kr(1, 0.1);
 
-         // Three envelope presets with smooth triangular blending
-         att1 = 0.01;        rel1 = max_release; cur1 = -2;    // zone 1: snappy attack, long release
-         att2 = max_attack;  rel2 = max_release; cur2 = -0.5;  // zone 2: slow attack, long release (pad)
-         att3 = max_attack;  rel3 = 0.01;        cur3 = 0;     // zone 3: slow attack, snappy release
-
-         w1 = (1 - (shape * 3).min(1)).max(0);
-         w2 = (1 - ((shape - 0.33) * 3).abs()).max(0).min(1);
-         w3 = ((shape - 0.66) * 3).max(0).min(1);
-
-         attack  = ((att1 * w1 + att2 * w2 + att3 * w3) * scale).clip(0.01, max_attack);
-         release = ((rel1 * w1 + rel2 * w2 + rel3 * w3) * scale).clip(0.01, max_release);
-         curve   = (cur1 * w1 + cur2 * w2 + cur3 * w3);
+         // Original 4-zone LinSelectX contour (restored)
+         attack  = (LinSelectX.kr(shape * 3, [0.01, 0.01, max_attack, max_attack]) * scale).clip(0.01, max_attack);
+         release = (LinSelectX.kr(shape * 3, [0.01, max_release, max_release, 0.01]) * scale).clip(0.01, max_release);
+         curve   =  LinSelectX.kr(shape * 3, [-2, -0.5, 0, 0]);
 
          asr    = EnvGen.kr(Env.asr(attack, 1, release, curve: curve), gate, doneAction: 2);
          ararar = EnvGen.kr(Env.new([0, 1, 0, 1, 0], [attack, release, attack, release], releaseNode: 3, loopNode: 1, curve: curve), gate, doneAction: 2);

@@ -292,7 +292,7 @@ local function calc_cycle_len()
    local idx = shape * 3
    local attack = util.clamp(linselect(idx, {0.01, 0.01, max_a, max_a}) * scale_val, 0.01, max_a)
    local release = util.clamp(linselect(idx, {0.01, max_r, max_r, 0.01}) * scale_val, 0.01, max_r)
-   return attack + release
+   return 2 * (attack + release)
 end
 
 -- drone snapshot helper functions (ncoco-style)
@@ -1196,21 +1196,21 @@ function redraw()
       local info = LFOs.get_cursor_info()
 
       s.level(0)
-      s.rect(4, 8, 120, 50)
+      s.rect(2, 2, 124, 60)
       s.fill()
       s.level(15)
-      s.rect(4, 8, 120, 50)
+      s.rect(2, 2, 124, 60)
       s.stroke()
 
       -- Title: LFO N + freq
       s.level(15)
-      s.move(8, 18)
+      s.move(6, 12)
       s.text("LFO " .. LFOs.patch_mode)
-      s.move(118, 18)
+      s.move(122, 12)
       s.text_right(string.format("%.2fHz", lfo.freq))
 
       -- Scope
-      local sx, sy, sw, sh = 10, 22, 100, 12
+      local sx, sy, sw, sh = 10, 16, 108, 16
       s.level(4)
       s.rect(sx, sy, sw, sh)
       s.stroke()
@@ -1234,13 +1234,20 @@ function redraw()
       end
       s.stroke()
 
-      -- Menu items: shape, noise, assignments
-      local y_pos = 40
-      local max_items = math.min(info.max_cursor, 4)
-      for item_idx = 1, max_items do
-         local is_selected = (item_idx == info.cursor)
-         s.level(is_selected and 15 or 4)
-         s.move(8, y_pos)
+      -- Menu items with 3-line scroll
+      local visible_items = 3
+      local scroll_offset = 0
+      if info then
+         scroll_offset = math.max(0, math.min(info.cursor - 1, math.max(0, info.max_cursor - visible_items)))
+      end
+      local y_start = 38
+      local y_step = 8
+      for vis_idx = 1, visible_items do
+         local item_idx = scroll_offset + vis_idx
+         if info and item_idx <= info.max_cursor then
+            local is_selected = (item_idx == info.cursor)
+            s.level(is_selected and 15 or 4)
+            s.move(6, y_start + (vis_idx - 1) * y_step)
          if item_idx == 1 then
             local marker = is_selected and "> " or "  "
             s.text(marker .. "shape   " .. string.format("%.2f", lfo.shape))
@@ -1256,17 +1263,16 @@ function redraw()
                if #name > 10 then name = string.sub(name, 1, 7) .. ".." end
                s.text(marker .. name .. " " .. string.format("%+.1f%%", a[2] * 100))
                if is_selected then
-                  s.move(118, y_pos)
+                  s.move(122, y_start + (vis_idx - 1) * y_step)
                   s.text_right("[" .. assign_idx .. "/" .. #lfo.assignments .. "]")
                end
             end
          end
-         y_pos = y_pos + 8
       end
 
       -- Controls hint
       s.level(4)
-      s.move(6, 62)
+      s.move(4, 62)
       s.text("E1:frq E2:sel E3:val K3:± SHFT:del")
    end
 
