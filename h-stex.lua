@@ -695,10 +695,8 @@ function init()
             return
          end
 
-         -- Sync base_values from current param value (in case it was changed from menu/encoder)
-         base_values[p_name] = params:get_raw(p_name)
          -- Soft takeover compares against base_values (fader position), not modulated value
-         local current_norm = base_values[p_name]
+         local current_norm = base_values[p_name] or params:get_raw(p_name)
 
          -- notify loopers of fader movement (for recording & playback offset)
          Loopers.on_fader_move(id, val_norm)
