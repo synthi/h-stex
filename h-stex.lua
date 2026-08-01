@@ -1269,6 +1269,7 @@ function redraw()
             end
          end
       end
+      end
 
       -- Controls hint
       s.level(4)
