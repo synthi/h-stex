@@ -53,6 +53,13 @@ local  sostenuto = false
 local        oct = 2
 local fader_latched = {}
 local base_values = {}  -- param_id -> normalized 0-1, set by faders/encoders (before LFO/looper offsets)
+
+-- Populate base_values from current param values (call after PSET load)
+local function init_base_values()
+   for _, p_name in pairs(Loopers.fader_map) do
+      base_values[p_name] = params:get_raw(p_name)
+   end
+end
 local pending_notes = {}
 for i = 1, 16 do fader_latched[i] = false end
 local      trail = 8
@@ -646,6 +653,9 @@ function init()
    end
 
    params:bang()
+
+   -- Initialize base_values from loaded PSET params (compatibility with old PSETs)
+   init_base_values()
 
    params:set("focus", 3)
 
