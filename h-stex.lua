@@ -1375,7 +1375,7 @@ function redraw_grid()
    end
 
    -- env loop LED at (2,1): brillo 1 default, envelope brightness when active
-   if Harvest.poly_loop == 1 then
+   if Harvest.poly_loop == 0 then
       g:led(2, 1, 1)  -- dim when off
    else
       -- Show envelope brightness (2-13)
