@@ -390,6 +390,8 @@ function Loopers.run(id)
                   if p_name then
                      local p_obj = params:lookup_param(p_name)
                      if p_obj then
+                        -- Sync base_values from current param value (in case it was changed from menu/encoder)
+                        Loopers.base_values[p_name] = params:get_raw(p_name)
                         local base = Loopers.base_values[p_name] or Loopers.fader_current[fid] or 0
                         local target_norm = util.clamp(base + total_delta, 0, 1)
                         local target_val = p_obj.controlspec:map(target_norm)

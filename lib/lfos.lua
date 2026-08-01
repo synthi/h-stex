@@ -139,6 +139,8 @@ function LFOs._tick(id, delta)
       local param_id, depth = a[1], a[2]
       local p = params:lookup_param(param_id)
       if p then
+         -- Sync base_values from current param value (in case it was changed from menu/encoder)
+         LFOs.base_values[param_id] = params:get_raw(param_id)
          local base_norm = LFOs.base_values[param_id]
          local base_val
          if base_norm then
