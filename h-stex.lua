@@ -1,6 +1,7 @@
 --
---  A expanded universe by Joaue Arias
---  v2.7 - Støy EX
+--  A expanding universe 
+--  by Jaue Arias
+--  v2.8 - Støy EX
 --      .                   
 --                         
 --          .          .     
@@ -10,8 +11,7 @@
 --                         .
 -- .
 -- original v1.1 / imminent gloom
-
--- setup
+--
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 engine.name = "Harvest"
