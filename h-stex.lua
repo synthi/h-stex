@@ -1,7 +1,7 @@
 --
 --  A expanding universe 
 --  by Jaue Arias
---  v2.9 - Støy EX
+--  v3.0 - Støy EX
 --      .                   
 --                         
 --          .          .     
@@ -1219,21 +1219,21 @@ function redraw()
       local info = LFOs.get_cursor_info()
 
       s.level(0)
-      s.rect(2, 0, 124, 64)
+      s.rect(2, 1, 124, 62)
       s.fill()
       s.level(15)
-      s.rect(2, 0, 124, 64)
+      s.rect(2, 1, 124, 62)
       s.stroke()
 
-      -- Title: LFO N (right) + freq/div value (left)
+      -- Title: LFO N (right) + E1 freq/div value (left)
       s.level(15)
       s.move(122, 10)
       s.text_right("LFO " .. LFOs.patch_mode)
       s.move(6, 10)
       if lfo.sync then
-         s.text(LFOs.sync_divisions[lfo.sync_div] or "1/1")
+         s.text("E1: " .. (LFOs.sync_divisions[lfo.sync_div] or "1/1"))
       else
-         s.text(string.format("%.2fHz", lfo.freq))
+         s.text("E1: " .. string.format("%.2fHz", lfo.freq))
       end
 
       -- Scope
@@ -1301,7 +1301,7 @@ function redraw()
       -- Controls hint
       s.level(4)
       s.move(4, 60)
-      s.text("E1:frq E2:sel E3:val K2:± K3:sync SHFT:del")
+      s.text("E2:sel E3:val K2:± K3:sync")
    end
 
    s.update()

@@ -393,7 +393,12 @@ function Loopers.run(id)
                         local base = Loopers.base_values[p_name] or Loopers.fader_current[fid] or 0
                         local target_norm = util.clamp(base + total_delta, 0, 1)
                         local target_val = p_obj.controlspec:map(target_norm)
-                        params:set(p_name, target_val)
+                        -- Engine bypass: call action directly so param value stays at base
+                        if p_obj.action then
+                           p_obj.action(target_val)
+                        else
+                           params:set(p_name, target_val)
+                        end
                      end
                   end
                end

@@ -150,7 +150,12 @@ function LFOs._tick(id, delta)
          local contrib = ((lfo.value + 1) / 2) * depth * range
          a[3] = contrib
          local new_val = util.clamp(base_val + contrib, p.controlspec.minval, p.controlspec.maxval)
-         params:set(param_id, new_val)
+         -- Engine bypass: call action directly so param value stays at base (fader position)
+         if p.action then
+            p.action(new_val)
+         else
+            params:set(param_id, new_val)
+         end
       end
    end
 end
