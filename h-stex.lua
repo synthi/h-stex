@@ -1,7 +1,7 @@
 --
 --  A expanding universe 
 --  by Jaue Arias
---  v3.0 - Støy EX
+--  v3.1 - Støy EX
 --      .                   
 --                         
 --          .          .     
@@ -695,8 +695,8 @@ function init()
             return
          end
 
-         -- Soft takeover compares against base_values (fader position), not modulated value
-         local current_norm = base_values[p_name] or params:get_raw(p_name)
+         -- Soft takeover: params:get_raw() is always the base value (engine bypass ensures it's never modulated)
+         local current_norm = params:get_raw(p_name)
 
          -- notify loopers of fader movement (for recording & playback offset)
          Loopers.on_fader_move(id, val_norm)
@@ -751,13 +751,9 @@ function init()
             if diff > 0.15 then
                fader_latched[id] = false
             else
-               -- Write to base_values (fader is primary)
-               base_values[p_name] = val_norm
-               -- If no LFO/looper is modulating this param, write directly
-               if not LFOs.param_is_modulated(p_name) and not Loopers.param_is_modulated(p_name) then
-                  if p_name == "fx_body" then target_val = util.clamp(target_val, 0, 1) end
-                  params:set(p_name, target_val)
-               end
+               -- Always write to params (fader and menu stay synchronized)
+               if p_name == "fx_body" then target_val = util.clamp(target_val, 0, 1) end
+               params:set(p_name, target_val)
                UI.show_popup(p_obj.name, fader_display, 1.5)
             end
          end
@@ -1210,6 +1206,21 @@ function redraw()
       end
       s.fill()
    end
+
+   -- E1/E2/E3 value displays (overlaid on background graphics)
+   s.font_face(1)
+   s.font_size(8)
+   s.level(15)
+   -- Top left: E1 Drone freq
+   s.move(2, 8)
+   s.text("E1 freq: " .. string.format("%.0f", params:get("drone_freq")) .. "Hz")
+   -- Bottom left: E2 Delay time
+   s.move(2, 62)
+   s.text("E2 time: " .. string.format("%.2f", params:get("fx_time")) .. "s")
+   -- Bottom right: E3 Env scale
+   local scale_str = string.format("%.0f", params:get("poly_scale") * 100) .. "%"
+   s.move(126, 62)
+   s.text_right("E3 scale: " .. scale_str)
 
    UI.draw_popup()
 
