@@ -17,13 +17,13 @@ Loopers.fader_map = {
    [9]  = "fx_peak_1",
    [10] = "fx_peak_2",
    [11] = "fx_body",
-   [12] = "fx_time",
+   [12] = "fx_gain",
    [13] = "poly_max_attack",
    [14] = "poly_max_release",
    [15] = "drone_amp",
    [16] = "poly_amp",
    [17] = "drone_freq",
-   [18] = "fx_gain",
+   [18] = "fx_time",
    [19] = "poly_scale",
 }
 

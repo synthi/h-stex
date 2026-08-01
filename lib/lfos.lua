@@ -42,8 +42,8 @@ function LFOs.init(base_values_ref)
    LFOs.data = {}
    LFOs.patch_mode = nil
    LFOs.patch_cursor = 1
-   local default_freqs = {0.05, 0.12, 0.25, 0.42}
-   for i = 1, 4 do
+   local default_freqs = {0.05, 0.12, 0.25, 0.42, 0.08, 0.18}
+   for i = 1, 6 do
       LFOs.data[i] = {
          freq = default_freqs[i],
          shape = 0.5,    -- 0=ramp, 0.5=tri, 1=saw
@@ -65,7 +65,7 @@ function LFOs.init(base_values_ref)
    end
    -- Stagger coroutine launches to avoid CPU spike on init
    clock.run(function()
-      for i = 1, 4 do
+      for i = 1, 6 do
          LFOs.clock_ids[i] = clock.run(function() LFOs._run(i) end)
          clock.sleep(0.02)
       end
@@ -73,7 +73,7 @@ function LFOs.init(base_values_ref)
 end
 
 function LFOs.cleanup()
-   for i = 1, 4 do
+   for i = 1, 6 do
       if LFOs.clock_ids[i] then
          clock.cancel(LFOs.clock_ids[i])
          LFOs.clock_ids[i] = nil
@@ -242,7 +242,7 @@ function LFOs.clear_assignments(lfo_id)
 end
 
 function LFOs.clear_all()
-   for i = 1, 4 do
+   for i = 1, 6 do
       if LFOs.data[i] then
          LFOs.data[i].assignments = {}
       end
@@ -370,7 +370,7 @@ end
 
 -- Get base value for a param (without this LFO's contribution)
 function LFOs.get_base_value(param_id)
-   for i = 1, 4 do
+   for i = 1, 6 do
       if LFOs.data[i] then
          for _, a in ipairs(LFOs.data[i].assignments) do
             if a[1] == param_id then
@@ -386,7 +386,7 @@ end
 -- Serialize for PSET
 function LFOs.get_state()
    local state = {}
-   for i = 1, 4 do
+   for i = 1, 6 do
       if LFOs.data[i] then
          local lfo = LFOs.data[i]
          local assignments = {}
@@ -409,7 +409,7 @@ end
 -- Restore from PSET
 function LFOs.set_state(state)
    if not state then return end
-   for i = 1, 4 do
+   for i = 1, 6 do
       if state[i] and LFOs.data[i] then
          local s = state[i]
          LFOs.data[i].freq = s.freq or 0.25
@@ -429,7 +429,7 @@ end
 
 -- Check if any LFO is modulating this param
 function LFOs.param_is_modulated(param_id)
-   for i = 1, 4 do
+   for i = 1, 6 do
       if LFOs.data[i] then
          for _, a in ipairs(LFOs.data[i].assignments) do
             if a[1] == param_id then return true end

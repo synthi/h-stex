@@ -819,7 +819,7 @@ function enc(n, d)
 
    local enc_map = {
       [1] = {param = "drone_freq", delta = 0.05, id = 17},
-      [2] = {param = "fx_gain",    delta = 1,    id = 18},
+      [2] = {param = "fx_time",    delta = 0.05,  id = 18},
       [3] = {param = "poly_scale", delta = 1,    id = 19},
    }
    local m = enc_map[n]
@@ -869,9 +869,9 @@ g.key = function(x, y, z)
       end
    end
 
-   -- LFO buttons: rows 4-5, cols 1-2 (hold=patch, release=exit, SHIFT+hold=clear)
-   if y >= 4 and y <= 5 and x >= 1 and x <= 2 then
-      local lfo_id = (y - 4) * 2 + x
+   -- LFO buttons: rows 3-5, cols 1-2 (hold=patch, release=exit, SHIFT+hold=clear)
+   if y >= 3 and y <= 5 and x >= 1 and x <= 2 then
+      local lfo_id = (y - 3) * 2 + x
       if z == 1 then
          if shift_held then
             LFOs.clear_assignments(lfo_id)
@@ -972,7 +972,7 @@ g.key = function(x, y, z)
             end
          end
       end
-   elseif x == 1 and y == 2 then
+   elseif x == 2 and y == 1 then
       if z == 1 then
          if params:get("poly_loop") == 2 then
             params:set("poly_loop", 1)
@@ -986,11 +986,11 @@ g.key = function(x, y, z)
       if z == 1 and LFOs.patch_mode then
          LFOs.remove_current()
       end
-   elseif y == 1 and x == 2 and z == 1 then
-      oct = math.max(0, oct - 1)
-   elseif y == 1 and x == 3 and z == 1 then
-      if oct < 2 then oct = oct + 1 elseif oct > 2 then oct = oct - 1 end
    elseif y == 1 and x == 4 and z == 1 then
+      oct = math.max(0, oct - 1)
+   elseif y == 1 and x == 5 and z == 1 then
+      if oct < 2 then oct = oct + 1 elseif oct > 2 then oct = oct - 1 end
+   elseif y == 1 and x == 6 and z == 1 then
       oct = math.min(4, oct + 1)
    else
        if y <= 7 and x >= math.max(1, 9 - y) then
@@ -1345,7 +1345,7 @@ function redraw_grid()
       hold_brightness = 4 + math.floor(6 * wave + 0.5)
    end
    g:led(1, 1, hold_brightness)
-   g:led(1, 2, 4)   -- loop off → visible but dim
+   g:led(1, 2, 0)   -- freed (env loop moved to 2,1)
    g:led(1, 3, 0)   -- unused → off
    g:led(1, 4, 0)   -- unused → off
    g:led(1, 5, 0)   -- unused → off
@@ -1365,12 +1365,7 @@ function redraw_grid()
       end
    end
 
-   -- cast shadows (off/level 0) and light up held keys
-   for n = 1, #playing do
-      for m = 1, math.min(trail, playing[n].x - 1, g.rows - playing[n].y) do
-         g:led(playing[n].x - m, playing[n].y + m, 0)
-      end
-   end
+   -- light up held keys (shadows removed)
    for n = 1, #playing do
       g:led(playing[n].x, playing[n].y, 10)
    end
@@ -1381,13 +1376,37 @@ function redraw_grid()
       g:led(pn.x, pn.y, 1 + math.floor(5 * pending_wave + 0.5))
    end
 
-   -- col 1 on
-   if Harvest.poly_loop == 1 then g:led(1, 2, 10) end
-   -- octave LEDs in row 1 (linear 0..4: -2,-1,0,+1,+2)
+   -- env loop LED at (2,1): brillo 1 default, envelope brightness when active
+   if Harvest.poly_loop == 1 then
+      g:led(2, 1, 1)  -- dim when off
+   else
+      -- Show envelope brightness (2-13)
+      local shape = params:get("poly_shape")
+      local scale_val = params:get("poly_scale")
+      local max_a = Harvest.max_attack or 0.197
+      local max_r = Harvest.max_release or 1
+      local idx = shape * 3
+      local attack = util.clamp(linselect(idx, {0.01, 0.01, max_a, max_a}) * scale_val, 0.01, max_a)
+      local release = util.clamp(linselect(idx, {0.01, max_r, max_r, 0.01}) * scale_val, 0.01, max_r)
+      local cycle = 2 * (attack + release)
+      local t = util.time() % cycle
+      local env_val
+      if t < attack then
+         env_val = t / attack
+      elseif t < attack + release then
+         env_val = 1 - (t - attack) / release
+      elseif t < 2 * attack + release then
+         env_val = (t - attack - release) / attack
+      else
+         env_val = 1 - (t - 2 * attack - release) / release
+      end
+      g:led(2, 1, 2 + math.floor(11 * env_val))
+   end
+   -- octave LEDs in row 1 cols 4-5-6 (linear 0..4: -2,-1,0,+1,+2)
    local oct_wave = (math.sin(frame * 0.10) + 1) / 2
-   local oct_led_1 = 0  -- x=2 (left)
-   local oct_led_2 = 0  -- x=3 (center)
-   local oct_led_3 = 0  -- x=4 (right)
+   local oct_led_1 = 1  -- x=4 (left), brillo 1 when not selected
+   local oct_led_2 = 1  -- x=5 (center)
+   local oct_led_3 = 1  -- x=6 (right)
 
    if oct == 0 then
       oct_led_1 = 2 + math.floor(4 * oct_wave + 0.5)  -- -2: blink 6↔2
@@ -1401,9 +1420,9 @@ function redraw_grid()
       oct_led_3 = 2 + math.floor(4 * oct_wave + 0.5)  -- +2: blink 6↔2
    end
 
-   g:led(2, 1, oct_led_1)
-   g:led(3, 1, oct_led_2)
-   g:led(4, 1, oct_led_3)
+   g:led(4, 1, oct_led_1)
+   g:led(5, 1, oct_led_2)
+   g:led(6, 1, oct_led_3)
 
    -- drone snapshot LEDs (row 8, cols 2-5, ncoco-style)
    for i = 1, 4 do
@@ -1416,10 +1435,10 @@ function redraw_grid()
       g:led(x, 8, b)
    end
 
-   -- LFO LEDs (row 4: cols 1-2, row 5: cols 1-2)
-   for i = 1, 4 do
-      local row = (i <= 2) and 4 or 5
-      local col = (i == 1 or i == 3) and 1 or 2
+   -- LFO LEDs (rows 3-5: cols 1-2, 6 LFOs top-to-bottom left-to-right)
+   for i = 1, 6 do
+      local row = math.floor((i - 1) / 2) + 3
+      local col = ((i - 1) % 2) + 1
       local lfo = LFOs.data[i]
       local b = 2
       if lfo then
