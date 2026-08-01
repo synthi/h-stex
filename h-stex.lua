@@ -1,7 +1,7 @@
 --
 --  A expanding universe 
 --  by Jaue Arias
---  v2.8 - Støy EX
+--  v2.9 - Støy EX
 --      .                   
 --                         
 --          .          .     
@@ -659,10 +659,13 @@ function init()
 
    params:set("focus", 3)
 
-   -- launch sequencer clock coroutines
-   for i = 1, 3 do
-      seq_clock_ids[i] = clock.run(function() run_sequencer(i) end)
-   end
+   -- launch sequencer clock coroutines (staggered to avoid CPU spike)
+   clock.run(function()
+      for i = 1, 3 do
+         seq_clock_ids[i] = clock.run(function() run_sequencer(i) end)
+         clock.sleep(0.02)
+      end
+   end)
 
    -- launch looper clock coroutines
    Loopers.init(base_values)
@@ -774,9 +777,20 @@ function key(n, z)
    if n == 3 and z == 1 then k3_held = true  end
    if n == 3 and z == 0 then k3_held = false end
 
-   -- LFO patch mode: K3=flip polarity (only on assignments)
-   if LFOs.patch_mode and z == 1 and n == 3 then
-      LFOs.flip_polarity()
+   -- LFO patch mode: K2=tap flip polarity / hold disconnect+reset, K3=toggle sync
+   if LFOs.patch_mode then
+      if n == 2 and z == 1 then
+         lfo_k2_press_time = util.time()
+      elseif n == 2 and z == 0 then
+         local hold = util.time() - (lfo_k2_press_time or 0)
+         if hold > 0.5 then
+            LFOs.reset_current()
+         else
+            LFOs.flip_polarity()
+         end
+      elseif n == 3 and z == 1 then
+         LFOs.toggle_sync()
+      end
       return
    end
 
@@ -1205,21 +1219,25 @@ function redraw()
       local info = LFOs.get_cursor_info()
 
       s.level(0)
-      s.rect(2, 2, 124, 60)
+      s.rect(2, 0, 124, 64)
       s.fill()
       s.level(15)
-      s.rect(2, 2, 124, 60)
+      s.rect(2, 0, 124, 64)
       s.stroke()
 
-      -- Title: LFO N + freq
+      -- Title: LFO N (right) + freq/div value (left)
       s.level(15)
-      s.move(6, 12)
-      s.text("LFO " .. LFOs.patch_mode)
-      s.move(122, 12)
-      s.text_right(string.format("%.2fHz", lfo.freq))
+      s.move(122, 10)
+      s.text_right("LFO " .. LFOs.patch_mode)
+      s.move(6, 10)
+      if lfo.sync then
+         s.text(LFOs.sync_divisions[lfo.sync_div] or "1/1")
+      else
+         s.text(string.format("%.2fHz", lfo.freq))
+      end
 
       -- Scope
-      local sx, sy, sw, sh = 10, 16, 108, 16
+      local sx, sy, sw, sh = 10, 14, 108, 16
       s.level(4)
       s.rect(sx, sy, sw, sh)
       s.stroke()
@@ -1249,7 +1267,7 @@ function redraw()
       if info then
          scroll_offset = math.max(0, math.min(info.cursor - 1, math.max(0, info.max_cursor - visible_items)))
       end
-      local y_start = 38
+      local y_start = 36
       local y_step = 8
       for vis_idx = 1, visible_items do
          local item_idx = scroll_offset + vis_idx
@@ -1282,8 +1300,8 @@ function redraw()
 
       -- Controls hint
       s.level(4)
-      s.move(4, 62)
-      s.text("E1:frq E2:sel E3:val K3:± SHFT:del")
+      s.move(4, 60)
+      s.text("E1:frq E2:sel E3:val K2:± K3:sync SHFT:del")
    end
 
    s.update()

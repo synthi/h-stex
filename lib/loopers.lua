@@ -45,10 +45,13 @@ function Loopers.init(base_values_ref)
    for i = 1, 19 do
       Loopers.fader_current[i] = 0
    end
-   -- launch looper clock coroutines
-   for i = 1, 6 do
-      Loopers.clock_ids[i] = clock.run(function() Loopers.run(i) end)
-   end
+    -- launch looper clock coroutines (staggered to avoid CPU spike)
+    clock.run(function()
+       for i = 1, 6 do
+          Loopers.clock_ids[i] = clock.run(function() Loopers.run(i) end)
+          clock.sleep(0.02)
+       end
+    end)
 end
 
 -- returns true if ANY looper is actively modifying parameters (rec/play/overdub)

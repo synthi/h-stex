@@ -1,7 +1,7 @@
 -- lib/lfos.lua
--- 4 free-running LFOs with ramp-tri-saw shape morphing + LFNoise
--- Writes directly via params:set() (Audrey pattern: subtract own contrib, add new)
--- v2.0 for h-stex
+-- 4 LFOs with ramp-tri-saw shape morphing + LFNoise, free-running or clock-synced
+-- Writes directly via params:set() (base_values + offset pattern)
+-- v2.1 for h-stex
 
 local LFOs = {}
 
@@ -9,6 +9,19 @@ LFOs.data = {}          -- 4 LFOs
 LFOs.patch_mode = nil   -- lfo_id activo en patch (nil si no hay)
 LFOs.patch_cursor = 1   -- item seleccionado en menu (1=shape, 2=noise, 3+=assignments)
 LFOs.clock_ids = {}     -- clock coroutine IDs
+
+-- Sync divisions: 18 values from 4/1 to 1/64 with dotted (.) and triplets (T)
+LFOs.sync_divisions = {
+   "4/1", "2/1", "1/1", "1/2.", "1/2", "1/2T",
+   "1/4.", "1/4", "1/4T", "1/8.", "1/8", "1/8T",
+   "1/16.", "1/16", "1/16T", "1/32", "1/32T", "1/64"
+}
+-- Beats per cycle for each division (4/1=16 beats ... 1/64=0.0625 beats)
+LFOs.sync_beats = {
+   16, 8, 4, 3, 2, 4/3,
+   1.5, 1, 2/3, 0.75, 0.5, 1/3,
+   0.375, 0.25, 1/6, 0.125, 1/12, 0.0625
+}
 
 -- Wave shape: 0=ramp, 0.5=triangle, 1=saw (continuous crossfade)
 local function calc_wave(phase_norm, shape)
@@ -40,14 +53,23 @@ function LFOs.init(base_values_ref)
          assignments = {},  -- {param_id, depth, contrib}
          history = {},
          history_head = 1,
+         -- Sync state
+         sync = false,     -- false=free-running Hz, true=clock-synced
+         sync_div = 3,     -- index into sync_divisions (3=1/1)
          -- LFNoise state
          slew_target = math.random() * 2 - 1,
          slew_current = 0.0,
          slew_timer = 0.0,
       }
       for j = 1, 128 do LFOs.data[i].history[j] = 0 end
-      LFOs.clock_ids[i] = clock.run(function() LFOs._run(i) end)
    end
+   -- Stagger coroutine launches to avoid CPU spike on init
+   clock.run(function()
+      for i = 1, 4 do
+         LFOs.clock_ids[i] = clock.run(function() LFOs._run(i) end)
+         clock.sleep(0.02)
+      end
+   end)
 end
 
 function LFOs.cleanup()
@@ -79,6 +101,13 @@ end
 function LFOs._tick(id, delta)
    local lfo = LFOs.data[id]
    if not lfo then return end
+
+   -- If synced, recalculate freq from clock tempo
+   if lfo.sync then
+      local beat_sec = clock.get_beat_sec()
+      local beats = LFOs.sync_beats[lfo.sync_div] or 4
+      lfo.freq = 1 / (beats * beat_sec)
+   end
 
    -- Advance phase using real delta time
    lfo.phase = lfo.phase + (2 * math.pi * lfo.freq * delta)
@@ -244,7 +273,7 @@ function LFOs.adjust_value(delta)
    end
 end
 
--- Flip polarity (K3) - only if cursor is on an assignment
+-- Flip polarity (K2 short tap) - only if cursor is on an assignment
 function LFOs.flip_polarity()
    if not LFOs.patch_mode then return end
    local lfo = LFOs.data[LFOs.patch_mode]
@@ -255,12 +284,45 @@ function LFOs.flip_polarity()
    end
 end
 
--- Adjust frequency (E1, always available in patch mode)
+-- Reset current parameter to default (K2 hold >0.5s)
+function LFOs.reset_current()
+   if not LFOs.patch_mode then return end
+   local lfo = LFOs.data[LFOs.patch_mode]
+   if not lfo then return end
+   if LFOs.patch_cursor == 1 then
+      lfo.shape = 0.5  -- default: triangle
+   elseif LFOs.patch_cursor == 2 then
+      lfo.noise = 0.0  -- default: pure deterministic
+   else
+      -- Assignment: disconnect (remove)
+      LFOs.remove_current()
+   end
+end
+
+-- Toggle sync mode (K3) - resets phase to 0 so synced LFOs align
+function LFOs.toggle_sync()
+   if not LFOs.patch_mode then return end
+   local lfo = LFOs.data[LFOs.patch_mode]
+   if not lfo then return end
+   lfo.sync = not lfo.sync
+   if lfo.sync then
+      lfo.phase = 0  -- reset phase so all synced LFOs are aligned
+      lfo.slew_timer = 0
+   end
+end
+
+-- Adjust frequency/division (E1, always available in patch mode)
 function LFOs.adjust_freq(delta)
    if not LFOs.patch_mode then return end
    local lfo = LFOs.data[LFOs.patch_mode]
    if not lfo then return end
-   lfo.freq = util.clamp(lfo.freq + delta * 0.01, 0.01, 12)
+   if lfo.sync then
+      -- In sync mode: change division
+      lfo.sync_div = util.clamp(lfo.sync_div + delta, 1, #LFOs.sync_divisions)
+   else
+      -- In free mode: change Hz
+      lfo.freq = util.clamp(lfo.freq + delta * 0.01, 0.01, 12)
+   end
 end
 
 -- Get current cursor info for display
@@ -273,6 +335,9 @@ function LFOs.get_cursor_info()
       freq = lfo.freq,
       cursor = LFOs.patch_cursor,
       max_cursor = 2 + #lfo.assignments,
+      sync = lfo.sync,
+      sync_div = lfo.sync_div,
+      sync_label = LFOs.sync_divisions[lfo.sync_div] or "1/1",
    }
    if LFOs.patch_cursor == 1 then
       info.label = "shape"
@@ -325,6 +390,8 @@ function LFOs.get_state()
             freq = lfo.freq,
             shape = lfo.shape,
             noise = lfo.noise,
+            sync = lfo.sync,
+            sync_div = lfo.sync_div,
             assignments = assignments,
          }
       end
@@ -341,6 +408,8 @@ function LFOs.set_state(state)
          LFOs.data[i].freq = s.freq or 0.25
          LFOs.data[i].shape = s.shape or 0.5
          LFOs.data[i].noise = s.noise or 0.0
+         LFOs.data[i].sync = s.sync or false
+         LFOs.data[i].sync_div = s.sync_div or 3
          LFOs.data[i].assignments = {}
          if s.assignments then
             for _, a in ipairs(s.assignments) do
