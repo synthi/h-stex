@@ -24,7 +24,8 @@ local function calc_wave(phase_norm, shape)
    end
 end
 
-function LFOs.init()
+function LFOs.init(base_values_ref)
+   LFOs.base_values = base_values_ref or {}
    LFOs.data = {}
    LFOs.patch_mode = nil
    LFOs.patch_cursor = 1
@@ -104,17 +105,22 @@ function LFOs._tick(id, delta)
    lfo.history_head = (lfo.history_head % 128) + 1
    lfo.history[lfo.history_head] = lfo.value
 
-   -- Apply modulation: Audrey pattern (subtract own contrib, add new)
+   -- Apply modulation: base_values + offset (fader is primary, LFO is offset)
    for _, a in ipairs(lfo.assignments) do
       local param_id, depth = a[1], a[2]
       local p = params:lookup_param(param_id)
       if p then
-         local current_raw = p:get()
-         local base = current_raw - (a[3] or 0)
+         local base_norm = LFOs.base_values[param_id]
+         local base_val
+         if base_norm then
+            base_val = p.controlspec:map(base_norm)
+         else
+            base_val = p:get()
+         end
          local range = p.controlspec.maxval - p.controlspec.minval
          local contrib = ((lfo.value + 1) / 2) * depth * range
          a[3] = contrib
-         local new_val = util.clamp(base + contrib, p.controlspec.minval, p.controlspec.maxval)
+         local new_val = util.clamp(base_val + contrib, p.controlspec.minval, p.controlspec.maxval)
          params:set(param_id, new_val)
       end
    end
@@ -343,6 +349,18 @@ function LFOs.set_state(state)
          end
       end
    end
+end
+
+-- Check if any LFO is modulating this param
+function LFOs.param_is_modulated(param_id)
+   for i = 1, 4 do
+      if LFOs.data[i] then
+         for _, a in ipairs(LFOs.data[i].assignments) do
+            if a[1] == param_id then return true end
+         end
+      end
+   end
+   return false
 end
 
 return LFOs

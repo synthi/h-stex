@@ -52,6 +52,7 @@ local   shift_held = false
 local  sostenuto = false
 local        oct = 2
 local fader_latched = {}
+local base_values = {}  -- param_id -> normalized 0-1, set by faders/encoders (before LFO/looper offsets)
 local pending_notes = {}
 for i = 1, 16 do fader_latched[i] = false end
 local      trail = 8
@@ -654,10 +655,10 @@ function init()
    end
 
    -- launch looper clock coroutines
-   Loopers.init()
+   Loopers.init(base_values)
 
    -- initialize LFOs
-   LFOs.init()
+   LFOs.init(base_values)
 
    -- 16n fader controller initialization with soft takeover
    clock.run(function()
@@ -681,14 +682,8 @@ function init()
             return
          end
 
-         -- Use base value (without LFO modulation) for soft takeover comparison
-         local lfo_base = LFOs.get_base_value(p_name)
-         local current_norm
-         if lfo_base then
-            current_norm = p_obj.controlspec:unmap(lfo_base)
-         else
-            current_norm = params:get_raw(p_name)
-         end
+         -- Soft takeover compares against base_values (fader position), not modulated value
+         local current_norm = base_values[p_name] or params:get_raw(p_name)
 
          -- notify loopers of fader movement (for recording & playback offset)
          Loopers.on_fader_move(id, val_norm)
@@ -743,10 +738,13 @@ function init()
             if diff > 0.15 then
                fader_latched[id] = false
             else
-               if p_name == "fx_body" then
-                  target_val = util.clamp(target_val, 0, 1)
+               -- Write to base_values (fader is primary)
+               base_values[p_name] = val_norm
+               -- If no LFO/looper is modulating this param, write directly
+               if not LFOs.param_is_modulated(p_name) and not Loopers.param_is_modulated(p_name) then
+                  if p_name == "fx_body" then target_val = util.clamp(target_val, 0, 1) end
+                  params:set(p_name, target_val)
                end
-               params:set(p_name, target_val)
                UI.show_popup(p_obj.name, fader_display, 1.5)
             end
          end
@@ -802,6 +800,7 @@ function enc(n, d)
    if m then
       params:delta(m.param, d * m.delta)
       local val_norm = params:get_raw(m.param)
+      base_values[m.param] = val_norm
       Loopers.on_fader_move(m.id, val_norm)
    end
 end

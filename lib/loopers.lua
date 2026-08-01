@@ -33,7 +33,8 @@ Loopers.clock_ids = {}
 Loopers.fader_current = {}
 
 -- called once during script init
-function Loopers.init()
+function Loopers.init(base_values_ref)
+   Loopers.base_values = base_values_ref or {}
    for i = 1, 6 do
       Loopers.loopers[i] = {
          data = {}, state = 0, playhead = 0, last_cpu_time = 0,
@@ -386,7 +387,7 @@ function Loopers.run(id)
                   if p_name then
                      local p_obj = params:lookup_param(p_name)
                      if p_obj then
-                        local base = Loopers.fader_current[fid] or 0
+                        local base = Loopers.base_values[p_name] or Loopers.fader_current[fid] or 0
                         local target_norm = util.clamp(base + total_delta, 0, 1)
                         local target_val = p_obj.controlspec:map(target_norm)
                         params:set(p_name, target_val)
@@ -402,6 +403,23 @@ function Loopers.run(id)
          clock.sleep(0.1)
       end
    end
+end
+
+-- Check if any looper is modulating this param
+function Loopers.param_is_modulated(param_id)
+   for fid, pname in pairs(Loopers.fader_map) do
+      if pname == param_id then
+         for i = 1, 6 do
+            local l = Loopers.loopers[i]
+            if (l.state == 2 or l.state == 3) and l.duration > 0.01 and #l.data > 0 then
+               for _, e in ipairs(l.data) do
+                  if e.deltas and e.deltas[fid] ~= nil then return true end
+               end
+            end
+         end
+      end
+   end
+   return false
 end
 
 return Loopers
