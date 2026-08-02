@@ -1791,12 +1791,8 @@ function redraw_grid(frame)
    local release = util.clamp(linselect(idx, {0.01, max_r, max_r, 0.01}) * scale_val, 0.01, max_r)
    local env_cycle = 2 * (attack + release)
 
-   -- Detect envelope cycle change: reset note timestamps so visual phase stays in sync with audio
+   -- Detect envelope cycle change: update stable cycle (used for modulo, prevents flickering during knob movement)
    if math.abs(env_cycle - last_env_cycle) > 0.001 then
-      local now = util.time()
-      for n = 1, #playing do
-         playing[n].timestamp = now
-      end
       last_env_cycle = env_cycle
    end
 
