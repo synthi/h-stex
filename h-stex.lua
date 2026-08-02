@@ -1168,6 +1168,7 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 function redraw(sframe)
+   sframe = sframe or 1
    s.clear()
    
    if splash then
