@@ -1345,9 +1345,9 @@ function redraw(sframe)
       end
       s.fill()
 
-      -- === 2. VELOS LYS (triángulos peak1/peak2, exactos como en Lys) ===
+      -- === 2. VELOS LYS (triángulos peak1/peak2, blend exclusion 13 entre ellos) ===
       s.level(1)
-      s.blend_mode(5)
+      s.blend_mode(13)  -- exclusion: peaks interact instead of covering each other
 
       local offset_1 = 128 * Harvest.fx_peak_1
       s.move(( 32 - 32) + offset_1,  0)
@@ -1363,7 +1363,9 @@ function redraw(sframe)
       s.line(( 32 + 32) + offset_2,  0)
       s.fill()
 
-      -- === VELO POLY (triángulo tenue de Løv, desplazado por poly_timbre) ===
+      -- === VELO POLY (triángulo tenue de Løv, blend multiply 3 con los peaks) ===
+      s.blend_mode(3)  -- multiply: se mezcla oscureciendo con los peaks
+
       local poly_offset = 64 * (Harvest.poly_timbre or 0.2)
       if (Harvest.poly_timbre or 0) < 0.5 then
          s.move(64 + poly_offset, 0)
@@ -1766,13 +1768,13 @@ function redraw_grid(frame)
    set_led(1, 7, 0)   -- freed from keyboard
    set_led(1, 8, shift_held and 14 or 4)  -- shift button
 
-   -- tonic notes at level 3, only within keyboard diagonal area (rows 1-7)
+   -- tonic notes at level 2, only within keyboard diagonal area (rows 1-7)
    for x = 2, 16 do
       for y = 1, 7 do
           if x >= math.max(1, 9 - y) then
             local n = xy_to_note(x, y)
             if (n % 12) == scale_root then
-               set_led(x, y, 3)
+               set_led(x, y, 2)
             end
          end
       end
@@ -1788,25 +1790,21 @@ function redraw_grid(frame)
    local release = util.clamp(linselect(idx, {0.01, max_r, max_r, 0.01}) * scale_val, 0.01, max_r)
    local env_cycle = 2 * (attack + release)
 
-   -- light up held keys with envelope-driven brightness (7-15), pressed notes fixed at 10
+   -- light up all playing notes with envelope-driven brightness (4-15)
    for n = 1, #playing do
       local p = playing[n]
-      if p.held then
-         local t = (util.time() - (p.timestamp or 0)) % env_cycle
-         local env_val
-         if t < attack then
-            env_val = t / attack
-         elseif t < attack + release then
-            env_val = 1 - (t - attack) / release
-         elseif t < 2 * attack + release then
-            env_val = (t - attack - release) / attack
-         else
-            env_val = 1 - (t - 2 * attack - release) / release
-         end
-         set_led(p.x, p.y, 4 + math.floor(11 * env_val))
+      local t = (util.time() - (p.timestamp or 0)) % env_cycle
+      local env_val
+      if t < attack then
+         env_val = t / attack
+      elseif t < attack + release then
+         env_val = 1 - (t - attack) / release
+      elseif t < 2 * attack + release then
+         env_val = (t - attack - release) / attack
       else
-         set_led(p.x, p.y, 10)
+         env_val = 1 - (t - 2 * attack - release) / release
       end
+      set_led(p.x, p.y, 4 + math.floor(11 * env_val))
    end
 
    -- pending notes blink (1↔6 fast)
