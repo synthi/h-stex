@@ -37,7 +37,8 @@ local  intensity = 8
 local  particles = {}
 local    density = 96
 
--- stars for PLAY mode (Nebulosa)
+-- stars for PLAY mode (Terrario espacial)
+-- Each star has a life cycle: born → brighten → fade → respawn at new position
 local stars = {}
 for i = 1, 50 do
    stars[i] = {
@@ -47,6 +48,25 @@ for i = 1, 50 do
       speed = 0.1 + math.random() * 0.2,
       base_level = 3 + math.random() * 5,
       twinkle = 0,
+      life = math.random() * 2 * math.pi,  -- life cycle phase
+      life_speed = 0.05 + math.random() * 0.15,  -- how fast it lives/dies
+      alive = true,
+   }
+end
+
+-- Light orbs (planets/meteors): grow → brighten → shrink → fade
+local orbs = {}
+for i = 1, 4 do
+   orbs[i] = {
+      x = math.random(1, 128),
+      y = math.random(1, 64),
+      vx = (math.random() - 0.5) * 0.5,
+      vy = (math.random() - 0.5) * 0.5,
+      size = 1,
+      max_size = 3 + math.random() * 4,  -- 3-7px
+      life = math.random() * 2 * math.pi,
+      life_speed = 0.03 + math.random() * 0.08,
+      alive = false,
    }
 end
 
@@ -461,7 +481,7 @@ function init()
       type = "group",
       id   = "harvest",
       name = "HØST",
-      n    = 52
+      n    = 50
    }
 
    params:add_separator("kontroll", "CONTROL")
@@ -1264,87 +1284,41 @@ function redraw()
       s.fill()
    end
 
-   if focus == 4 then -- Play (Nebulosa = Lys + stars + drift + poly veil + gain bloom)
+   if focus == 4 then -- Play (Terrario espacial)
       -- Respiración: poly_shape controls speed (0=transient/fast, 1=sustained/slow)
       local breath_speed = util.clamp(0.3 + (1 - (Harvest.poly_shape or 0.1)) * 0.7, 0.1, 1.0)
       local t = util.time() * breath_speed
       local gain_val = params:get("fx_gain") or 0.5
       local gain_norm = util.clamp((gain_val - 0.5) / 15.5, 0, 1)
 
-      -- === BASE: Full Lys rendering ===
-      -- light
-      s.level(7)
-      s.rect(0, 0, 128, 64)
-      s.fill()
+      -- === FONDO NEGRO ===
+      -- (s.clear() already gives black; no fill)
 
-      -- shadow (from Lys, with fx_body controlling width)
-      s.level(3)
-      for n = 1, math.max(math.floor(#particles * (1 - Harvest.fx_time)), 1) do
-         x = particles[n].x
-         y = particles[n].y
-         for n = 1, 2 + math.floor(62 * 2 * math.abs(((Harvest.fx_body - 0.5) % 1) - 0.5)) do
-            if particles[n].on == true then
-               s.pixel(x - n, y + n)
-            end
-         end
-      end
-      s.fill()
-
-      -- dark triangles (from Lys, with subtle drift added)
+      -- === VELOS LYS (triángulos peak1/peak2, como en Lys) ===
+      -- Sobre negro, blend_mode(5) = SCREEN crea velo luminoso tenue
       s.level(1)
       s.blend_mode(5)
 
-      local drift_1 = math.sin(t * 0.3) * 4
-      local offset_1 = 128 * Harvest.fx_peak_1 + drift_1
+      local offset_1 = 128 * Harvest.fx_peak_1
       s.move(( 32 - 32) + offset_1,  0)
       s.line((-32 - 32) + offset_1, 64)
       s.line((-32 + 32) + offset_1, 64)
       s.line(( 32 + 32) + offset_1,  0)
       s.fill()
 
-      local drift_2 = math.sin(t * 0.25 + 1.5) * 4
-      local offset_2 = 128 * Harvest.fx_peak_2 + drift_2
+      local offset_2 = 128 * Harvest.fx_peak_2
       s.move(( 32 - 32) + offset_2,  0)
       s.line((-32 - 32) + offset_2, 64)
       s.line((-32 + 32) + offset_2, 64)
       s.line(( 32 + 32) + offset_2,  0)
       s.fill()
 
-      -- Gain bloom: extra darker triangles at high gain
-      if gain_norm > 0.2 then
-         s.level(math.floor(1 + gain_norm * 2))
-         local bloom_size = math.floor(gain_norm * 16)
-         s.move(( 32 - 32 - bloom_size) + offset_1,  0)
-         s.line((-32 - 32 - bloom_size) + offset_1, 64)
-         s.line((-32 + 32 + bloom_size) + offset_1, 64)
-         s.line(( 32 + 32 + bloom_size) + offset_1,  0)
-         s.fill()
-
-         s.move(( 32 - 32 - bloom_size) + offset_2,  0)
-         s.line((-32 - 32 - bloom_size) + offset_2, 64)
-         s.line((-32 + 32 + bloom_size) + offset_2, 64)
-         s.line(( 32 + 32 + bloom_size) + offset_2,  0)
-         s.fill()
-      end
-
       s.blend_mode(0)
 
-      -- detrius (from Lys)
-      s.level(15)
-      for n = 1, math.max(math.floor(#particles * (1 - Harvest.fx_time)), 1) do
-         x = particles[n].x
-         y = particles[n].y
-         if particles[n].on == true then
-            s.pixel(x, y)
-         end
-      end
-      s.fill()
-
-      -- === ADDITIONS: Poly veil + stars ===
-
-      -- Velo poly (very subtle dark overlay, from Løv)
+      -- === VELO POLY (triángulo tenue de Løv, desplazado por poly_timbre) ===
       local poly_offset = 64 * (Harvest.poly_timbre or 0.2)
-      s.level(0)
+      s.level(1)
+      s.blend_mode(5)
       if (Harvest.poly_timbre or 0) < 0.5 then
          s.move(64 + poly_offset, 0)
          s.line(0 + poly_offset, 64)
@@ -1358,39 +1332,120 @@ function redraw()
          s.line(0, 0)
          s.fill()
       end
+      s.blend_mode(0)
 
-      -- Stars (twinkling, organic, on top of everything)
+      -- === ESTRELLAS (drone_bias = densidad, ciclo vida: nacer→brillar→desvanecer→respawn) ===
       local bias_norm = util.clamp(((Harvest.drone_bias or 0) + 1) / 2, 0, 1)
-      local num_stars = math.floor(10 + 40 * bias_norm)
+      local num_stars = math.floor(5 + 45 * bias_norm)
       local timbre_val = Harvest.drone_timbre or 0.5
-      local noise_val = Harvest.drone_noise or 0
+      -- drone_noise sensible a valores bajos: multiplicar por 10
+      local noise_val = util.clamp((Harvest.drone_noise or 0) * 10, 0, 1)
 
       for i = 1, num_stars do
          local star = stars[i]
-         -- Twinkle: sine wave with individual phase
-         local wave = (math.sin(t * star.speed + star.phase) + 1) / 2
-         -- Random flash (drone_noise controls probability)
-         if math.random() < noise_val * 0.02 then
+         -- Life cycle: sin wave over 0..2π
+         star.life = star.life + star.life_speed * breath_speed
+         if star.life > 2 * math.pi then
+            star.life = 0
+            -- Respawn at new random position
+            star.x = math.random(1, 128)
+            star.y = math.random(1, 64)
+            star.alive = true
+         end
+
+         -- Brightness envelope: sin^2 for smooth born→peak→fade
+         local life_norm = star.life / (2 * math.pi)
+         local env = math.sin(life_norm * math.pi) ^ 2
+
+         -- Twinkle (drone_noise, sensitive at low values)
+         if math.random() < noise_val * 0.05 then
             star.twinkle = 1.0
          end
-         star.twinkle = star.twinkle * 0.95
+         star.twinkle = star.twinkle * 0.9
 
-         local brightness = wave * 0.6 + star.twinkle * 0.4
          -- drone_timbre controls base brightness
-         local base_bright = timbre_val < 0.5 and (3 + timbre_val * 10) or (8 + timbre_val * 7)
-         local level = math.floor(util.clamp(base_bright * brightness, 1, 15))
+         local base_bright = timbre_val < 0.5 and (2 + timbre_val * 8) or (6 + timbre_val * 6)
+         local brightness = env * 0.7 + star.twinkle * 0.3
+         local level = math.floor(util.clamp(base_bright * brightness, 1, 12))
 
+         if level > 1 then
+            s.level(level)
+            if gain_norm > 0.3 and level > 7 then
+               -- Bloom at high gain: small cross
+               s.pixel(star.x, star.y)
+               s.pixel(star.x - 1, star.y)
+               s.pixel(star.x + 1, star.y)
+               s.pixel(star.x, star.y - 1)
+               s.pixel(star.x, star.y + 1)
+               s.fill()
+            else
+               s.pixel(star.x, star.y)
+               s.fill()
+            end
+         end
+      end
+
+      -- === PUNTOS DE LUZ (poly_bias = cantidad, crecen→brillan→encogen→desvanecen) ===
+      local poly_bias_norm = util.clamp(((Harvest.poly_bias or 0) + 1) / 2, 0, 1)
+      local num_orbs = math.floor(1 + 3 * poly_bias_norm)
+      -- poly_noise sensible a valores bajos: multiplicar por 10
+      local poly_noise_val = util.clamp((Harvest.poly_noise or 0) * 10, 0, 1)
+
+      for i = 1, num_orbs do
+         local orb = orbs[i]
+         -- Life cycle
+         orb.life = orb.life + orb.life_speed * breath_speed
+         if orb.life > 2 * math.pi then
+            orb.life = 0
+            orb.alive = true
+            orb.x = math.random(5, 123)
+            orb.y = math.random(5, 59)
+            orb.max_size = 3 + math.random() * 4  -- 3-7px
+            orb.vx = (math.random() - 0.5) * 0.5
+            orb.vy = (math.random() - 0.5) * 0.5
+         end
+
+         -- Size envelope: grow → peak → shrink
+         local life_norm = orb.life / (2 * math.pi)
+         local size_env = math.sin(life_norm * math.pi)
+         local size = math.max(1, math.floor(orb.max_size * size_env))
+
+         -- Brightness follows size
+         local brightness = size_env
+         local level = math.floor(util.clamp(2 + brightness * 10, 1, 12))
+
+         -- Drift (poly_noise makes it more chaotic)
+         orb.x = orb.x + orb.vx * (1 + poly_noise_val * 2)
+         orb.y = orb.y + orb.vy * (1 + poly_noise_val * 2)
+         -- Wrap around edges
+         if orb.x < 1 then orb.x = 127 end
+         if orb.x > 128 then orb.x = 2 end
+         if orb.y < 1 then orb.y = 63 end
+         if orb.y > 64 then orb.y = 2 end
+
+         -- Draw orb as filled circle (approximate with pixels)
          s.level(level)
-         if gain_norm > 0.3 and level > 8 then
-            -- Bloom at high gain: draw small cross/plus
-            s.pixel(star.x, star.y)
-            s.pixel(star.x - 1, star.y)
-            s.pixel(star.x + 1, star.y)
-            s.pixel(star.x, star.y - 1)
-            s.pixel(star.x, star.y + 1)
-            s.fill()
-         else
-            s.pixel(star.x, star.y)
+         for dy = -size, size do
+            for dx = -size, size do
+               if dx * dx + dy * dy <= size * size then
+                  s.pixel(math.floor(orb.x + dx), math.floor(orb.y + dy))
+               end
+            end
+         end
+         s.fill()
+
+         -- Gain bloom: extra ring at high gain
+         if gain_norm > 0.3 then
+            s.level(math.floor(level * 0.5))
+            local ring = size + 1
+            for dy = -ring, ring do
+               for dx = -ring, ring do
+                  local d = dx * dx + dy * dy
+                  if d > size * size and d <= ring * ring then
+                     s.pixel(math.floor(orb.x + dx), math.floor(orb.y + dy))
+                  end
+               end
+            end
             s.fill()
          end
       end
