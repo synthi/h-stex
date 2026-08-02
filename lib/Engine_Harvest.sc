@@ -551,9 +551,16 @@ Engine_Harvest : CroneEngine {
             }
          );
       });
+
+      // Forward SendReply messages from scsynth to norns Lua (matron port 10111)
+      // SendReply sends [path, nodeID, replyID, env, note]; we forward [env, note]
+      OSCdef(\harvest_env_fwd, { |msg|
+         NetAddr("127.0.0.1", 10111).sendMsg('/harvest_env', msg[3], msg[4]);
+      }, '/harvest_env');
    }
 
    free {
+      OSCdef(\harvest_env_fwd).free;
       harvestBus.free;
       harvestFx.free;
       harvestDrone.free;

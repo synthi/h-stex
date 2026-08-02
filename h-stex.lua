@@ -753,17 +753,22 @@ function init()
    params:bang()
 
    -- OSC handler: receive real envelope phase from SC engine (ground truth for grid LED sync)
-   -- SendReply OSC structure: [path, nodeID, replyID, env, note]
+   -- OSCdef in Engine_Harvest.sc forwards SendReply [env, note] to port 10111
+   local osc_msg_count = 0
    osc.event = function(path, args, from)
       if path == '/harvest_env' then
-         local env_val = args[3] or 0
-         local midi_note = args[4] or 60
+         local env_val = args[1] or 0
+         local midi_note = args[2] or 60
          local idx = note_to_playing[midi_note]
          if idx and playing[idx] then
             playing[idx].env_val = env_val
          end
-         -- debug: uncomment to verify OSC messages arrive
-         -- print(string.format("OSC env: %.3f note: %d idx: %s", env_val, midi_note, tostring(idx)))
+         -- debug metrics: print once per second (30Hz sender)
+         osc_msg_count = osc_msg_count + 1
+         if osc_msg_count % 30 == 1 then
+            print(string.format("OSC #%d env=%.3f note=%d nargs=%d match=%s",
+               osc_msg_count, env_val, midi_note, #args, tostring(idx ~= nil)))
+         end
       end
    end
 
