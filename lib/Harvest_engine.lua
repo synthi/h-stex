@@ -5,8 +5,7 @@
 -- v1.5 imminent gloom
 
 local Harvest = {}
-local EnvQuant = include("lib/env_quant")
-local LFOs = include("lib/lfos")
+-- EnvQuant and LFOs are globals set by h-stex.lua includes
 
 -- adds a list of params
 -- @bool midicontrol If false, don't build and set-up midi params

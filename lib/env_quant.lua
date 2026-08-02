@@ -7,7 +7,7 @@
 
 local LFOs = include("lib/lfos")
 
-local EnvQuant = {}
+EnvQuant = {}
 
 -- long divisions (user spec) + 16/1, 12/1 for very long drone cycles
 local LONG_LABELS = {"16/1", "12/1", "8/1", "7/1", "6/1", "5/1", "4/1", "3/1", "2/1", "1.5/1", "1/1"}

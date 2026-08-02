@@ -1724,11 +1724,8 @@ function redraw(sframe)
    -- Bottom left: E2 Delay time
    s.move(2, 62)
    s.text("E2 time: " .. string.format("%.2f", params:get("fx_time")) .. "s")
-   -- Bottom right: E3 Env scale (+ snapped division when Env Quant active)
+   -- Bottom right: E3 Env scale (always shows % only)
    local scale_str = string.format("%.0f", params:get("poly_scale") * 100) .. "%"
-   if EnvQuant.enabled() and EnvQuant.last_div_idx > 0 then
-      scale_str = scale_str .. " > " .. EnvQuant.div_labels[EnvQuant.last_div_idx]
-   end
    s.move(126, 62)
    s.text_right("E3 scale: " .. scale_str)
 
