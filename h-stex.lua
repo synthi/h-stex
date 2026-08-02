@@ -1,7 +1,7 @@
 --
 --  A expanding universe 
 --  by Jaue Arias
---  v3.4 - Støy EX
+--  v3.5 - Støy EX
 --      .                   
 --                         
 --          .          .     
@@ -43,7 +43,6 @@ end
 
 local  arc_dirty = true
 local     splash = true
-local last_env_cycle = 0
 local  intensity = 8
 local  particles = {}
 local    density = 96
@@ -738,6 +737,20 @@ function init()
    end
 
    params:bang()
+
+   -- OSC handler: receive real envelope phase from SC engine (ground truth for grid LED sync)
+   osc.event = function(path, args, from)
+      if path == '/harvest_env' then
+         local env_val = args[1] or 0.5
+         local midi_note = args[2] or 60
+         for _, p in ipairs(playing) do
+            if p.note == midi_note then
+               p.env_val = env_val
+               break
+            end
+         end
+      end
+   end
 
    -- Initialize base_values from loaded PSET params (compatibility with old PSETs)
    init_base_values()
@@ -1757,8 +1770,8 @@ function redraw_grid(frame)
    -- coll 1
    local hold_brightness = (Harvest.poly_hold == 1) and 10 or 4
    if sostenuto then
-      local wave = (math.sin(frame * 0.08) + 1) / 2
-      hold_brightness = 4 + math.floor(6 * wave + 0.5)
+      local wave = (math.sin(frame * 0.116) + 1) / 2  -- 1.11 Hz at 60fps
+      hold_brightness = 3 + math.floor(8 * wave + 0.5)  -- 3↔11
    end
    set_led(1, 1, hold_brightness)
    set_led(1, 2, 0)   -- freed (env loop moved to 2,1)
@@ -1781,42 +1794,11 @@ function redraw_grid(frame)
       end
    end
 
-   -- Envelope parameters (shared between held-keys brightness and env-loop LED)
-   local shape = params:get("poly_shape")
-   local scale_val = params:get("poly_scale")
-   local max_a = Harvest.max_attack or 0.197
-   local max_r = Harvest.max_release or 1
-   local idx = shape * 3
-   local attack = util.clamp(linselect(idx, {0.01, 0.01, max_a, max_a}) * scale_val, 0.01, max_a)
-   local release = util.clamp(linselect(idx, {0.01, max_r, max_r, 0.01}) * scale_val, 0.01, max_r)
-   local env_cycle = 2 * (attack + release)
-
-   -- Detect envelope cycle change: proportionally re-phase each note
-   -- so it keeps its relative position (e.g. 40% → 40% in new cycle)
-   if last_env_cycle > 0.001 and math.abs(env_cycle - last_env_cycle) > 0.001 then
-      local now = util.time()
-      for n = 1, #playing do
-         local p = playing[n]
-         local old_phase = ((now - (p.timestamp or 0)) % last_env_cycle) / last_env_cycle
-         p.timestamp = now - (old_phase * env_cycle)
-      end
-   end
-   last_env_cycle = env_cycle
-
    -- light up all playing notes with envelope-driven brightness (4-15)
+   -- Uses real envelope phase from SC engine via OSC (ground truth)
    for n = 1, #playing do
       local p = playing[n]
-      local t = (util.time() - (p.timestamp or 0)) % last_env_cycle
-      local env_val
-      if t < attack then
-         env_val = t / attack
-      elseif t < attack + release then
-         env_val = 1 - (t - attack) / release
-      elseif t < 2 * attack + release then
-         env_val = (t - attack - release) / attack
-      else
-         env_val = 1 - (t - 2 * attack - release) / release
-      end
+      local env_val = p.env_val or 0.5
       set_led(p.x, p.y, 4 + math.floor(11 * env_val))
    end
 
@@ -1826,23 +1808,8 @@ function redraw_grid(frame)
       set_led(pn.x, pn.y, 1 + math.floor(5 * pending_wave + 0.5))
    end
 
-   -- env loop LED at (2,1): brillo 1 default, envelope brightness when active
-   if Harvest.poly_loop == 0 then
-      set_led(2, 1, 1)  -- dim when off
-   else
-      local t = util.time() % last_env_cycle
-      local env_val
-      if t < attack then
-         env_val = t / attack
-      elseif t < attack + release then
-         env_val = 1 - (t - attack) / release
-      elseif t < 2 * attack + release then
-         env_val = (t - attack - release) / attack
-      else
-         env_val = 1 - (t - 2 * attack - release) / release
-      end
-      set_led(2, 1, 2 + math.floor(11 * env_val))
-   end
+   -- env loop LED at (2,1): fixed brightness (notes now show envelope individually)
+   set_led(2, 1, Harvest.poly_loop == 0 and 1 or 4)
    -- octave LEDs in row 1 cols 4-5-6 (linear 0..4: -2,-1,0,+1,+2)
    local oct_wave = (math.sin(frame * 0.10) + 1) / 2
    local oct_led_1 = 1  -- x=4 (left), brillo 1 when not selected

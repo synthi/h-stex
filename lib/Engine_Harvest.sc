@@ -1,7 +1,7 @@
 // Engine_harvest
 // a part of Høst
 //
-// v1.7 — analog tolerances + LPG + sub drone
+// v1.8 — OSC envelope phase ground truth for grid LED sync
 // imminent gloom / Josue Arias
 
 Engine_Harvest : CroneEngine {
@@ -221,6 +221,7 @@ Engine_Harvest : CroneEngine {
          var vel, gate, loop, shape, scale, max_attack, max_release;
          var attack, release, curve, asr, ararar, env, lpg;
          var att1, att2, att3, rel1, rel2, rel3, cur1, cur2, cur3, w1, w2, w3;
+         var note = \note.kr(60);
          // === Analog tolerances (fixed per voice) ===
          var sine_detune  = Rand(-0.001, 0.001);    // ±0.1% (2 cents)
          var saw_detune   = Rand(-0.003, 0.003);    // ±0.3% (5 cents)
@@ -326,8 +327,9 @@ Engine_Harvest : CroneEngine {
          filter_env = env * (amp * amp);
          lpg = LPF.ar(min, filter_env.linexp(0, 1, 210, 18500) * [lpg_L_var + thermal, lpg_R_var + thermal], amp_env * voice_gain);
 
-         Out.ar(\out.ir(0), Pan2.ar(lpg * [bal_L_var, bal_R_var], \pan.kr(0)) * 0.25);
-      }).add;
+          SendReply.kr(Impulse.kr(30), '/harvest_env', [env, note]);
+          Out.ar(\out.ir(0), Pan2.ar(lpg * [bal_L_var, bal_R_var], \pan.kr(0)) * 0.25);
+       }).add;
 
       // initialize fx synth and bus
       context.server.sync;
@@ -375,11 +377,12 @@ Engine_Harvest : CroneEngine {
              });
           });
 
-          harvestVoices.put(note,
-             Synth.before(harvestFx, "harvestpoly",[
-                \amp, harvestParameters.at("amp"),
-                \out, harvestBus,
-                \freq, (note).midicps,
+           harvestVoices.put(note,
+              Synth.before(harvestFx, "harvestpoly",[
+                 \amp, harvestParameters.at("amp"),
+                 \out, harvestBus,
+                 \freq, (note).midicps,
+                 \note, note,
                 \timbre, harvestParameters.at("timbre"),
                 \noise, harvestParameters.at("noise"),
                 \bias, harvestParameters.at("bias"),
