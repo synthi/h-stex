@@ -6,6 +6,7 @@
 
 local Harvest = {}
 local EnvQuant = include("lib/env_quant")
+local LFOs = include("lib/lfos")
 
 -- adds a list of params
 -- @bool midicontrol If false, don't build and set-up midi params
@@ -227,9 +228,37 @@ function Harvest.init(midicontrol)
       id          = "fx_time",
       name        = "Time",
       controlspec = controlspec.new(0.01, 2, "lin", 0.001, 1, "s"),
+      formatter   = function(x)
+         if params:get("delay_sync") == 2 then
+            local raw = x:get_raw()
+            local div_idx = util.clamp(math.floor(raw * #LFOs.sync_divisions) + 1, 1, #LFOs.sync_divisions)
+            return LFOs.sync_divisions[div_idx]
+         else
+            return string.format("%.2f s", x:get())
+         end
+      end,
       action      = function(x)
-         engine.harvest_fx_set("time", x)
+         if params:get("delay_sync") == 2 then
+            EnvQuant.apply_delay_sync()
+         else
+            engine.harvest_fx_set("time", x)
+         end
 			   Harvest.fx_time = (x - 0.01) / 1.99
+      end
+   }
+
+   params:add{
+      type    = "option",
+      id      = "delay_sync",
+      name    = "Delay Sync",
+      options = {"OFF", "ON"},
+      default = 1,
+      action  = function(x)
+         if x == 2 then
+            EnvQuant.apply_delay_sync()
+         else
+            engine.harvest_fx_set("time", params:get("fx_time"))
+         end
       end
    }
 
@@ -352,10 +381,10 @@ function Harvest.init(midicontrol)
       type    = "option",
       id      = "poly_quant",
       name    = "Env Quant",
-      options = EnvQuant.option_labels,
+      options = {"OFF", "ON"},
       default = 1,
       action  = function(x)
-         if x > 1 then
+         if x == 2 then
             EnvQuant.apply()
          else
             if Harvest.max_attack then engine.harvest_poly_set("max_attack", Harvest.max_attack) end

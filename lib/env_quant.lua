@@ -32,6 +32,7 @@ for _, l in ipairs(EnvQuant.div_labels) do table.insert(EnvQuant.option_labels, 
 -- state
 EnvQuant.last_cycle   = 0      -- last quantized attack+release (seconds)
 EnvQuant.last_div_idx = 0
+EnvQuant.last_delay_div = 0    -- last delay sync division index
 EnvQuant.min_cycle    = 0.02   -- hard floor: attack 0.01 + release 0.01
 EnvQuant.max_cycle    = 48     -- conservative ceiling: 24s + 24s
 
@@ -53,7 +54,7 @@ end
 
 function EnvQuant.enabled()
    local q = params:get("poly_quant")
-   return q ~= nil and q > 1
+   return q ~= nil and q == 2
 end
 
 -- nearest reachable division to d_beats (reachability in seconds)
@@ -105,6 +106,17 @@ function EnvQuant.apply()
    engine.harvest_poly_set("max_release", mr)
    EnvQuant.last_cycle   = d_q
    EnvQuant.last_div_idx = div_idx
+end
+
+-- delay sync: map fx_time normalized value to LFO division, send beats*beat_sec to engine
+function EnvQuant.apply_delay_sync()
+   if params:get("delay_sync") ~= 2 then return end
+   local raw = params:get_raw("fx_time")
+   local div_idx = util.clamp(math.floor(raw * #LFOs.sync_divisions) + 1, 1, #LFOs.sync_divisions)
+   local beats = LFOs.sync_beats[div_idx]
+   local t = util.clamp(beats * clock.get_beat_sec(), 0.001, 10)
+   engine.harvest_fx_set("time", t)
+   EnvQuant.last_delay_div = div_idx
 end
 
 return EnvQuant

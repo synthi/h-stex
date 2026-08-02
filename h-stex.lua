@@ -1,7 +1,7 @@
 --
 --  A expanding universe 
 --  by Jaue Arias
---  v4.0 - Støy EX
+--  v4.1 - Støy EX
 --      .                   
 --                         
 --          .          .     
@@ -608,6 +608,7 @@ function init()
          if math.abs(bs - last_bs) > 0.0001 then
             last_bs = bs
             if EnvQuant.enabled() then EnvQuant.apply() end
+            if params:get("delay_sync") == 2 then EnvQuant.apply_delay_sync() end
          end
       end
    end)
@@ -616,7 +617,7 @@ function init()
       type = "group",
       id   = "harvest",
       name = "HØST",
-      n    = 53
+      n    = 54
    }
 
    params:add_separator("kontroll", "CONTROL")
@@ -1713,6 +1714,13 @@ function redraw(sframe)
    -- Top left: E1 Drone freq
    s.move(2, 8)
    s.text("E1 freq: " .. string.format("%.0f", params:get("drone_freq")) .. "Hz")
+   -- Top right: Env Quant status (FREE or current division)
+   local env_status = "FREE"
+   if EnvQuant.enabled() and EnvQuant.last_div_idx > 0 then
+      env_status = EnvQuant.div_labels[EnvQuant.last_div_idx]
+   end
+   s.move(126, 8)
+   s.text_right("ENV: " .. env_status)
    -- Bottom left: E2 Delay time
    s.move(2, 62)
    s.text("E2 time: " .. string.format("%.2f", params:get("fx_time")) .. "s")
