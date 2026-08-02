@@ -1778,9 +1778,35 @@ function redraw_grid(frame)
       end
    end
 
-   -- light up held keys (shadows removed)
+   -- Envelope parameters (shared between held-keys brightness and env-loop LED)
+   local shape = params:get("poly_shape")
+   local scale_val = params:get("poly_scale")
+   local max_a = Harvest.max_attack or 0.197
+   local max_r = Harvest.max_release or 1
+   local idx = shape * 3
+   local attack = util.clamp(linselect(idx, {0.01, 0.01, max_a, max_a}) * scale_val, 0.01, max_a)
+   local release = util.clamp(linselect(idx, {0.01, max_r, max_r, 0.01}) * scale_val, 0.01, max_r)
+   local env_cycle = 2 * (attack + release)
+
+   -- light up held keys with envelope-driven brightness (7-15), pressed notes fixed at 10
    for n = 1, #playing do
-      set_led(playing[n].x, playing[n].y, 10)
+      local p = playing[n]
+      if p.held then
+         local t = (util.time() - (p.timestamp or 0)) % env_cycle
+         local env_val
+         if t < attack then
+            env_val = t / attack
+         elseif t < attack + release then
+            env_val = 1 - (t - attack) / release
+         elseif t < 2 * attack + release then
+            env_val = (t - attack - release) / attack
+         else
+            env_val = 1 - (t - 2 * attack - release) / release
+         end
+         set_led(p.x, p.y, 7 + math.floor(8 * env_val))
+      else
+         set_led(p.x, p.y, 10)
+      end
    end
 
    -- pending notes blink (1↔6 fast)
@@ -1793,16 +1819,7 @@ function redraw_grid(frame)
    if Harvest.poly_loop == 0 then
       set_led(2, 1, 1)  -- dim when off
    else
-      -- Show envelope brightness (2-13)
-      local shape = params:get("poly_shape")
-      local scale_val = params:get("poly_scale")
-      local max_a = Harvest.max_attack or 0.197
-      local max_r = Harvest.max_release or 1
-      local idx = shape * 3
-      local attack = util.clamp(linselect(idx, {0.01, 0.01, max_a, max_a}) * scale_val, 0.01, max_a)
-      local release = util.clamp(linselect(idx, {0.01, max_r, max_r, 0.01}) * scale_val, 0.01, max_r)
-      local cycle = 2 * (attack + release)
-      local t = util.time() % cycle
+      local t = util.time() % env_cycle
       local env_val
       if t < attack then
          env_val = t / attack
