@@ -660,6 +660,17 @@ function init()
       end
    }
 
+   params:add{
+      type        = "option",
+      id          = "fader_orient",
+      name        = "16n Orient",
+      options     = {"Normal", "Inverted"},
+      default     = 2,
+      action      = function(x)
+         _16n.set_inverted(x == 2)
+      end
+   }
+
    Harvest.init(false)
 
    params:add_separator("skala", "SCALE")
@@ -890,8 +901,8 @@ function init()
          local p_obj = params:lookup_param(p_name)
          if not p_obj then return end
 
-         -- normalize midi value (0-127) to 0-1
-         local val_norm = util.clamp(msg.val / 127, 0, 1)
+         -- normalize midi value with log-taper linearization
+         local val_norm = _16n.normalize(msg.val)
 
          -- LFO patch mode: fader movement connects/selects target, no param change
          if LFOs.patch_mode then

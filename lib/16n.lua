@@ -1,9 +1,29 @@
--- lib/16n.lua
+-- lib/16n.lua v2.03
 -- 16n fader controller driver for h-stex
 -- based on ncoco's 16n implementation
+-- v2.03: normalize() with log-taper linearization + inverted flag
 
 local _16n = {}
 _16n.last_values = {}
+_16n.inverted = true  -- default: inverted (pivot at MIDI 80)
+
+_16n.set_inverted = function(state)
+   _16n.inverted = state
+   _16n.last_values = {}
+end
+
+-- Linearize log-taper fader: 2-segment interpolation with pivot
+-- Inverted: pivot at MIDI 80 (physical center), Normal: pivot at MIDI 47 (mirror)
+_16n.normalize = function(midi_val, bipolar)
+   if midi_val < 1 then return 0.0 end
+   if midi_val > 126 then return 1.0 end
+   local pivot = _16n.inverted and 80 or 47
+   if midi_val <= pivot then
+      return util.linlin(1, pivot, 0.0, 0.5, midi_val)
+   else
+      return util.linlin(pivot, 126, 0.5, 1.0, midi_val)
+   end
+end
 
 _16n.request_sysex_config_dump = function(midi_dev)
    if midi_dev then
