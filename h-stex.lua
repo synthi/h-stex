@@ -98,6 +98,7 @@ local      focus = 4
 local prev_focus = 3
 
 local    playing = {}
+local note_to_playing = {}  -- midi_note -> playing index (O(1) lookup for OSC env)
 local      voice = 1
 local  transpose = 0
 local       note
@@ -252,14 +253,21 @@ local function stop_keys()
       engine.harvest_note_off(playing[n].note + playing[n].transpose)
    end
    playing = {}
+   note_to_playing = {}
 end
 
 local function stop_held()
    for n = #playing, 1, -1 do
       if playing[n].held then
          engine.harvest_note_off(playing[n].note + playing[n].transpose)
+         note_to_playing[playing[n].note + playing[n].transpose] = nil
          table.remove(playing, n)
       end
+   end
+   -- rebuild lookup after removals
+   note_to_playing = {}
+   for i, p in ipairs(playing) do
+      note_to_playing[p.note + p.transpose] = i
    end
 end
 
@@ -301,14 +309,17 @@ local function play_note(x, y, z, note, seq_note)
    if z == 1 then 
       if #playing >= 12 then
          engine.harvest_note_off(playing[1].note + playing[1].transpose)
+         note_to_playing[playing[1].note + playing[1].transpose] = nil
          table.remove(playing, 1)
       end
       table.insert(playing, {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time(), seq_note = seq_note or false, env_val = 0})
+      note_to_playing[note + transpose] = #playing
       engine.harvest_note_on(note + transpose, velocity, duration)
     else
        for i, v in pairs(playing) do
           if v.x == x and v.y == y and not v.held then
              engine.harvest_note_off(playing[i].note + playing[i].transpose)
+             note_to_playing[playing[i].note + playing[i].transpose] = nil
              table.remove(playing, i)
              break
           end
@@ -324,6 +335,7 @@ local function play_note(x, y, z, note, seq_note)
       for i, v in pairs(playing) do
          if v.x == x and v.y == y then
             engine.harvest_note_off(playing[i].note + playing[i].transpose)
+            note_to_playing[playing[i].note + playing[i].transpose] = nil
             table.remove(playing, i)
             voice = i
             break
@@ -332,9 +344,11 @@ local function play_note(x, y, z, note, seq_note)
       if voice == nil then
          if #playing >= 12 then
             engine.harvest_note_off(playing[1].note + playing[1].transpose)
+            note_to_playing[playing[1].note + playing[1].transpose] = nil
             table.remove(playing, 1)
          end
          table.insert(playing, {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time(), env_val = 0})
+         note_to_playing[note + transpose] = #playing
          engine.harvest_note_on(note + transpose, velocity, duration)
       end
    else
@@ -739,16 +753,17 @@ function init()
    params:bang()
 
    -- OSC handler: receive real envelope phase from SC engine (ground truth for grid LED sync)
+   -- SendReply OSC structure: [path, nodeID, replyID, env, note]
    osc.event = function(path, args, from)
       if path == '/harvest_env' then
-         local env_val = args[4] or 0
-         local midi_note = args[5] or 60
-         for _, p in ipairs(playing) do
-            if p.note == midi_note then
-               p.env_val = env_val
-               break
-            end
+         local env_val = args[3] or 0
+         local midi_note = args[4] or 60
+         local idx = note_to_playing[midi_note]
+         if idx and playing[idx] then
+            playing[idx].env_val = env_val
          end
+         -- debug: uncomment to verify OSC messages arrive
+         -- print(string.format("OSC env: %.3f note: %d idx: %s", env_val, midi_note, tostring(idx)))
       end
    end
 
