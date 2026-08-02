@@ -104,9 +104,10 @@ local function _quantize_seq_change(id, fn)
       local wait = (next_beat - clock.get_beats()) * clock.get_beat_sec()
       if wait < 0 then wait = 0 end
       s.pending_change = clock.run(function()
+         clock.sleep(wait)
          s.pending_change = nil
          fn()
-      end, wait)
+      end)
    end
 end
 
@@ -460,7 +461,7 @@ function init()
       type = "group",
       id   = "harvest",
       name = "HØST",
-      n    = 40
+      n    = 49
    }
 
    params:add_separator("kontroll", "CONTROL")
@@ -1263,46 +1264,85 @@ function redraw()
       s.fill()
    end
 
-   if focus == 4 then -- Play (Nebulosa)
+   if focus == 4 then -- Play (Nebulosa = Lys + stars + drift + poly veil + gain bloom)
       -- Respiración: poly_shape controls speed (0=transient/fast, 1=sustained/slow)
       local breath_speed = util.clamp(0.3 + (1 - (Harvest.poly_shape or 0.1)) * 0.7, 0.1, 1.0)
       local t = util.time() * breath_speed
+      local gain_val = params:get("fx_gain") or 0.5
+      local gain_norm = util.clamp((gain_val - 0.5) / 15.5, 0, 1)
 
-      -- Light background
+      -- === BASE: Full Lys rendering ===
+      -- light
       s.level(7)
       s.rect(0, 0, 128, 64)
       s.fill()
 
-      -- Nebulosas oscuras (softer than Lys, with drift)
-      local body_size = 20 + math.floor(30 * util.clamp(Harvest.fx_body or 0, 0, 1))
-      local gain_val = params:get("fx_gain") or 0.5
-      local gain_norm = util.clamp((gain_val - 0.5) / 15.5, 0, 1)
-      local nebula_level = 2 + math.floor(gain_norm * 3)  -- gain makes nebulas darker/bigger
+      -- shadow (from Lys, with fx_body controlling width)
+      s.level(3)
+      for n = 1, math.max(math.floor(#particles * (1 - Harvest.fx_time)), 1) do
+         x = particles[n].x
+         y = particles[n].y
+         for n = 1, 2 + math.floor(62 * 2 * math.abs(((Harvest.fx_body - 0.5) % 1) - 0.5)) do
+            if particles[n].on == true then
+               s.pixel(x - n, y + n)
+            end
+         end
+      end
+      s.fill()
 
-      s.level(nebula_level)
+      -- dark triangles (from Lys, with subtle drift added)
+      s.level(1)
       s.blend_mode(5)
 
-      local offset_1 = 128 * (Harvest.fx_peak_1 or 0)
-      local drift_1 = math.sin(t * 0.3) * 8
-      local size_1 = body_size + math.floor(gain_norm * 10)
-      s.move((32 - size_1) + offset_1 + drift_1, 0)
-      s.line((-size_1 - 32) + offset_1 + drift_1, 64)
-      s.line((-size_1 + 32) + offset_1 + drift_1, 64)
-      s.line((size_1 + 32) + offset_1 + drift_1, 0)
+      local drift_1 = math.sin(t * 0.3) * 4
+      local offset_1 = 128 * Harvest.fx_peak_1 + drift_1
+      s.move(( 32 - 32) + offset_1,  0)
+      s.line((-32 - 32) + offset_1, 64)
+      s.line((-32 + 32) + offset_1, 64)
+      s.line(( 32 + 32) + offset_1,  0)
       s.fill()
 
-      local offset_2 = 128 * (Harvest.fx_peak_2 or 0)
-      local drift_2 = math.sin(t * 0.25 + 1.5) * 8
-      local size_2 = body_size + math.floor(gain_norm * 10)
-      s.move((32 - size_2) + offset_2 + drift_2, 0)
-      s.line((-size_2 - 32) + offset_2 + drift_2, 64)
-      s.line((-size_2 + 32) + offset_2 + drift_2, 64)
-      s.line((size_2 + 32) + offset_2 + drift_2, 0)
+      local drift_2 = math.sin(t * 0.25 + 1.5) * 4
+      local offset_2 = 128 * Harvest.fx_peak_2 + drift_2
+      s.move(( 32 - 32) + offset_2,  0)
+      s.line((-32 - 32) + offset_2, 64)
+      s.line((-32 + 32) + offset_2, 64)
+      s.line(( 32 + 32) + offset_2,  0)
       s.fill()
+
+      -- Gain bloom: extra darker triangles at high gain
+      if gain_norm > 0.2 then
+         s.level(math.floor(1 + gain_norm * 2))
+         local bloom_size = math.floor(gain_norm * 16)
+         s.move(( 32 - 32 - bloom_size) + offset_1,  0)
+         s.line((-32 - 32 - bloom_size) + offset_1, 64)
+         s.line((-32 + 32 + bloom_size) + offset_1, 64)
+         s.line(( 32 + 32 + bloom_size) + offset_1,  0)
+         s.fill()
+
+         s.move(( 32 - 32 - bloom_size) + offset_2,  0)
+         s.line((-32 - 32 - bloom_size) + offset_2, 64)
+         s.line((-32 + 32 + bloom_size) + offset_2, 64)
+         s.line(( 32 + 32 + bloom_size) + offset_2,  0)
+         s.fill()
+      end
 
       s.blend_mode(0)
 
-      -- Velo poly (very subtle dark overlay)
+      -- detrius (from Lys)
+      s.level(15)
+      for n = 1, math.max(math.floor(#particles * (1 - Harvest.fx_time)), 1) do
+         x = particles[n].x
+         y = particles[n].y
+         if particles[n].on == true then
+            s.pixel(x, y)
+         end
+      end
+      s.fill()
+
+      -- === ADDITIONS: Poly veil + stars ===
+
+      -- Velo poly (very subtle dark overlay, from Løv)
       local poly_offset = 64 * (Harvest.poly_timbre or 0.2)
       s.level(0)
       if (Harvest.poly_timbre or 0) < 0.5 then
@@ -1319,20 +1359,7 @@ function redraw()
          s.fill()
       end
 
-      -- Poly shadows (subtle, from Løv)
-      s.level(3)
-      for n = 1, math.max(math.floor(#particles * util.clamp(Harvest.poly_bias or 0, 0, 1) * 0.5), 1) do
-         local px = particles[n].x
-         local py = particles[n].y
-         for sn = 1, 2 do
-            if particles[n].on == true then
-               s.pixel(px - sn, py + sn)
-            end
-         end
-      end
-      s.fill()
-
-      -- Stars (twinkling, organic)
+      -- Stars (twinkling, organic, on top of everything)
       local bias_norm = util.clamp(((Harvest.drone_bias or 0) + 1) / 2, 0, 1)
       local num_stars = math.floor(10 + 40 * bias_norm)
       local timbre_val = Harvest.drone_timbre or 0.5

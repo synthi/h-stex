@@ -160,9 +160,10 @@ function Loopers._quantize_change(id, fn)
       local wait = (next_beat - clock.get_beats()) * clock.get_beat_sec()
       if wait < 0 then wait = 0 end
       l.pending_change = clock.run(function()
+         clock.sleep(wait)
          l.pending_change = nil
          fn()
-      end, wait)
+      end)
    end
 end
 
