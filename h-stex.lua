@@ -260,14 +260,12 @@ local function stop_held()
    for n = #playing, 1, -1 do
       if playing[n].held then
          engine.harvest_note_off(playing[n].note + playing[n].transpose)
-         note_to_playing[playing[n].note + playing[n].transpose] = nil
+         local key = playing[n].note + playing[n].transpose
+         if note_to_playing[key] == playing[n] then
+            note_to_playing[key] = nil
+         end
          table.remove(playing, n)
       end
-   end
-   -- rebuild lookup after removals
-   note_to_playing = {}
-   for i, p in ipairs(playing) do
-      note_to_playing[p.note + p.transpose] = i
    end
 end
 
@@ -308,18 +306,26 @@ local function play_note(x, y, z, note, seq_note)
    transpose = 12 * oct
    if z == 1 then 
       if #playing >= 12 then
-         engine.harvest_note_off(playing[1].note + playing[1].transpose)
-         note_to_playing[playing[1].note + playing[1].transpose] = nil
+         local evicted = playing[1]
+         engine.harvest_note_off(evicted.note + evicted.transpose)
+         local ekey = evicted.note + evicted.transpose
+         if note_to_playing[ekey] == evicted then
+            note_to_playing[ekey] = nil
+         end
          table.remove(playing, 1)
       end
-      table.insert(playing, {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time(), seq_note = seq_note or false, env_val = 0})
-      note_to_playing[note + transpose] = #playing
+      local entry = {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time(), seq_note = seq_note or false, env_val = 0}
+      table.insert(playing, entry)
+      note_to_playing[note + transpose] = entry
       engine.harvest_note_on(note + transpose, velocity, duration)
     else
        for i, v in pairs(playing) do
           if v.x == x and v.y == y and not v.held then
-             engine.harvest_note_off(playing[i].note + playing[i].transpose)
-             note_to_playing[playing[i].note + playing[i].transpose] = nil
+             engine.harvest_note_off(v.note + v.transpose)
+             local key = v.note + v.transpose
+             if note_to_playing[key] == v then
+                note_to_playing[key] = nil
+             end
              table.remove(playing, i)
              break
           end
@@ -334,8 +340,11 @@ local function play_note(x, y, z, note, seq_note)
       transpose = 12 * oct
       for i, v in pairs(playing) do
          if v.x == x and v.y == y then
-            engine.harvest_note_off(playing[i].note + playing[i].transpose)
-            note_to_playing[playing[i].note + playing[i].transpose] = nil
+            engine.harvest_note_off(v.note + v.transpose)
+            local key = v.note + v.transpose
+            if note_to_playing[key] == v then
+               note_to_playing[key] = nil
+            end
             table.remove(playing, i)
             voice = i
             break
@@ -343,12 +352,17 @@ local function play_note(x, y, z, note, seq_note)
       end
       if voice == nil then
          if #playing >= 12 then
-            engine.harvest_note_off(playing[1].note + playing[1].transpose)
-            note_to_playing[playing[1].note + playing[1].transpose] = nil
+            local evicted = playing[1]
+            engine.harvest_note_off(evicted.note + evicted.transpose)
+            local ekey = evicted.note + evicted.transpose
+            if note_to_playing[ekey] == evicted then
+               note_to_playing[ekey] = nil
+            end
             table.remove(playing, 1)
          end
-         table.insert(playing, {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time(), env_val = 0})
-         note_to_playing[note + transpose] = #playing
+         local entry = {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time(), env_val = 0}
+         table.insert(playing, entry)
+         note_to_playing[note + transpose] = entry
          engine.harvest_note_on(note + transpose, velocity, duration)
       end
    else
@@ -597,12 +611,14 @@ function init()
       default     = 1,
       action      = function(x)
          scale_root = x - 1
-         -- retrigger active notes with new root
+         -- retrigger active notes with new root + rebuild voice lookup
+         note_to_playing = {}
          for i, v in ipairs(playing) do
             local new_note = xy_to_note(v.x, v.y)
             engine.harvest_note_off(v.note + v.transpose)
             engine.harvest_note_on(new_note + v.transpose, velocity, duration)
             v.note = new_note
+            note_to_playing[new_note + v.transpose] = v
          end
       end
    }
@@ -754,20 +770,28 @@ function init()
 
    -- OSC handler: receive real envelope phase from SC engine (ground truth for grid LED sync)
    -- OSCdef in Engine_Harvest.sc forwards SendReply [env, note] to port 10111
-   local osc_msg_count = 0
+   -- Debug: event-driven logging (only prints on hook/miss transitions, no flood)
+   local osc_matched = {}   -- notes currently hooked
+   local osc_failed = {}    -- notes that failed match (rate-limited)
    osc.event = function(path, args, from)
       if path == '/harvest_env' then
          local env_val = args[1] or 0
          local midi_note = args[2] or 60
-         local idx = note_to_playing[midi_note]
-         if idx and playing[idx] then
-            playing[idx].env_val = env_val
-         end
-         -- debug metrics: print once per second (30Hz sender)
-         osc_msg_count = osc_msg_count + 1
-         if osc_msg_count % 30 == 1 then
-            print(string.format("OSC #%d env=%.3f note=%d nargs=%d match=%s",
-               osc_msg_count, env_val, midi_note, #args, tostring(idx ~= nil)))
+         local p = note_to_playing[midi_note]
+         if p then
+            p.env_val = env_val
+            if not osc_matched[midi_note] then
+               osc_matched[midi_note] = true
+               print("OSC hook: note " .. midi_note)
+            end
+            osc_failed[midi_note] = nil
+         else
+            if osc_matched[midi_note] then
+               osc_matched[midi_note] = nil
+            elseif not osc_failed[midi_note] then
+               osc_failed[midi_note] = true
+               print("OSC miss: note " .. midi_note)
+            end
          end
       end
    end
