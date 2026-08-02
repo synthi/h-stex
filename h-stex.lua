@@ -770,28 +770,11 @@ function init()
 
    -- OSC handler: receive real envelope phase from SC engine (ground truth for grid LED sync)
    -- OSCdef in Engine_Harvest.sc forwards SendReply [env, note] to port 10111
-   -- Debug: event-driven logging (only prints on hook/miss transitions, no flood)
-   local osc_matched = {}   -- notes currently hooked
-   local osc_failed = {}    -- notes that failed match (rate-limited)
    osc.event = function(path, args, from)
       if path == '/harvest_env' then
-         local env_val = args[1] or 0
-         local midi_note = args[2] or 60
-         local p = note_to_playing[midi_note]
+         local p = note_to_playing[args[2] or 60]
          if p then
-            p.env_val = env_val
-            if not osc_matched[midi_note] then
-               osc_matched[midi_note] = true
-               print("OSC hook: note " .. midi_note)
-            end
-            osc_failed[midi_note] = nil
-         else
-            if osc_matched[midi_note] then
-               osc_matched[midi_note] = nil
-            elseif not osc_failed[midi_note] then
-               osc_failed[midi_note] = true
-               print("OSC miss: note " .. midi_note)
-            end
+            p.env_val = args[1] or 0
          end
       end
    end
