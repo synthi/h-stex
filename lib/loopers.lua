@@ -36,11 +36,11 @@ Loopers.fader_current = {}
 function Loopers.init(base_values_ref)
    Loopers.base_values = base_values_ref or {}
    for i = 1, 6 do
-      Loopers.loopers[i] = {
-         data = {}, state = 0, playhead = 0, last_cpu_time = 0,
-         start_time = 0, duration = 0, double_click_timer = nil, press_time = 0,
-         base_values = {},
-      }
+       Loopers.loopers[i] = {
+          data = {}, state = 0, playhead = 0, last_cpu_time = 0,
+          start_time = 0, duration = 0, double_click_timer = nil, press_time = 0,
+          base_values = {}, pending_change = nil,
+       }
    end
    for i = 1, 19 do
       Loopers.fader_current[i] = 0
@@ -139,7 +139,34 @@ function Loopers.on_fader_move(fader_id, val_norm)
    end
 end
 
--- grid key handler for looper buttons (row 8, cols 7-11)
+-- Quantize a state change to the next clock boundary (or immediate if OFF)
+function Loopers._quantize_change(id, fn)
+   local l = Loopers.loopers[id]
+   if not l then return end
+   -- Cancel any pending change
+   if l.pending_change then
+      clock.cancel(l.pending_change)
+      l.pending_change = nil
+   end
+   local quant_val = params:get("looper" .. id .. "_quant") or 1
+   if quant_val == 1 then
+      -- OFF: execute immediately
+      fn()
+   else
+      -- Division: schedule at next boundary
+      local div_beats = {nil, 4, 2, 1, 0.5, 0.25, 0.125}
+      local div = div_beats[quant_val] or 4
+      local next_beat = math.ceil(clock.get_beats() / div) * div
+      local wait = (next_beat - clock.get_beats()) * clock.get_beat_sec()
+      if wait < 0 then wait = 0 end
+      l.pending_change = clock.run(function()
+         l.pending_change = nil
+         fn()
+      end, wait)
+   end
+end
+
+-- grid key handler for looper buttons (row 8, cols 7-12)
 -- returns true if the event was consumed
 function Loopers.grid_key(x, y, z, shift_held)
    if y ~= 8 or x < 7 or x > 12 then return false end
@@ -149,7 +176,8 @@ function Loopers.grid_key(x, y, z, shift_held)
 
    if z == 1 then
       if shift_held then
-         -- shift+press: clear looper
+         -- shift+press: clear looper (immediate, not quantized)
+         if l.pending_change then clock.cancel(l.pending_change); l.pending_change = nil end
          l.state = 0; l.data = {}; l.duration = 0; l.base_values = {}
          l.playhead = 0; l.start_time = 0
          return true
@@ -157,44 +185,59 @@ function Loopers.grid_key(x, y, z, shift_held)
 
       l.press_time = util.time()
       if l.state == 0 then
-         -- start recording
-         l.state = 1; l.data = {}; l.start_time = util.time()
-         l.base_values = {}
-         for fi = 1, 19 do l.base_values[fi] = Loopers.fader_current[fi] or 0 end
-         -- auto-close timer (30s)
-         clock.run(function()
-            local capture_id = id
-            clock.sleep(30.0)
-            if Loopers.loopers[capture_id].state == 1 then
-               local ll = Loopers.loopers[capture_id]
-               ll.duration = util.time() - ll.start_time
-               if ll.duration < 0.01 then ll.duration = 0.01 end
-               Loopers.rebase_deltas(ll)
-               ll.data = Loopers.slew_compress(ll.data)
-               local default_mode = params:get("looper_default_mode")
-               ll.state = (default_mode == 1) and 2 or 3
-               ll.playhead = 0; ll.last_cpu_time = util.time()
-               ll.start_time = util.time()
-            end
+         -- start recording (quantized)
+         Loopers._quantize_change(id, function()
+            local ll = Loopers.loopers[id]
+            ll.state = 1; ll.data = {}; ll.start_time = util.time()
+            ll.base_values = {}
+            for fi = 1, 19 do ll.base_values[fi] = Loopers.fader_current[fi] or 0 end
+            -- auto-close timer (30s)
+            clock.run(function()
+               local capture_id = id
+               clock.sleep(30.0)
+               if Loopers.loopers[capture_id].state == 1 then
+                  local ll2 = Loopers.loopers[capture_id]
+                  ll2.duration = util.time() - ll2.start_time
+                  if ll2.duration < 0.01 then ll2.duration = 0.01 end
+                  Loopers.rebase_deltas(ll2)
+                  ll2.data = Loopers.slew_compress(ll2.data)
+                  local default_mode = params:get("looper_default_mode")
+                  ll2.state = (default_mode == 1) and 2 or 3
+                  ll2.playhead = 0; ll2.last_cpu_time = util.time()
+                  ll2.start_time = util.time()
+               end
+            end)
          end)
       elseif l.state == 1 then
-         -- close recording → play or overdub
-         l.duration = util.time() - l.start_time
-         if l.duration < 0.01 then l.duration = 0.01 end
-         Loopers.rebase_deltas(l)
-         l.data = Loopers.slew_compress(l.data)
-         local default_mode = params:get("looper_default_mode")
-         l.state = (default_mode == 1) and 2 or 3
-         l.playhead = 0; l.last_cpu_time = util.time()
-         l.start_time = util.time()
+         -- close recording → play or overdub (quantized)
+         Loopers._quantize_change(id, function()
+            local ll = Loopers.loopers[id]
+            ll.duration = util.time() - ll.start_time
+            if ll.duration < 0.01 then ll.duration = 0.01 end
+            Loopers.rebase_deltas(ll)
+            ll.data = Loopers.slew_compress(ll.data)
+            local default_mode = params:get("looper_default_mode")
+            ll.state = (default_mode == 1) and 2 or 3
+            ll.playhead = 0; ll.last_cpu_time = util.time()
+            ll.start_time = util.time()
+         end)
       elseif l.state == 2 then
-         l.state = 3; l.start_time = util.time()  -- play → overdub
+         Loopers._quantize_change(id, function()
+            local ll = Loopers.loopers[id]
+            ll.state = 3; ll.start_time = util.time()
+         end)
       elseif l.state == 3 then
-         l.state = 2; l.start_time = util.time()  -- overdub → play
+         Loopers._quantize_change(id, function()
+            local ll = Loopers.loopers[id]
+            ll.state = 2; ll.start_time = util.time()
+         end)
       elseif l.state == 4 then
-         l.state = 2
-         l.playhead = 0; l.last_cpu_time = util.time()
-         l.start_time = util.time()  -- stop → play
+         Loopers._quantize_change(id, function()
+            local ll = Loopers.loopers[id]
+            ll.state = 2
+            ll.playhead = 0; ll.last_cpu_time = util.time()
+            ll.start_time = util.time()
+         end)
       end
       return true
    end

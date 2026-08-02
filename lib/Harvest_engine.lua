@@ -276,8 +276,8 @@ function Harvest.init(midicontrol)
    params:add_separator("poly_noter", "ENVELOPE")
 
    local function sigmoid_map(val)
-      local k = 12
-      local c = 0.93
+       local k = 5
+       local c = 0.55
       local sig = function(v) return 1 / (1 + math.exp(-k * (v - c))) end
       local s0 = sig(0)
       local s1 = sig(1)
@@ -344,6 +344,30 @@ function Harvest.init(midicontrol)
       options     = {"Play", "Overdub"},
       default     = 2,
    }
+
+   local quant_options = {"OFF", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32"}
+   for i = 1, 6 do
+      params:add{
+         type    = "option",
+         id      = "looper" .. i .. "_quant",
+         name    = "Looper " .. i .. " Quant",
+         options = quant_options,
+         default = 1,
+      }
+   end
+
+-- sequencer
+   params:add_separator("sequencer", "SEQUENCERS")
+
+   for i = 1, 3 do
+      params:add{
+         type    = "option",
+         id      = "seq" .. i .. "_quant",
+         name    = "Seq " .. i .. " Quant",
+         options = quant_options,
+         default = 1,
+      }
+   end
 
 -- midi
    if not midicontrol then

@@ -1,7 +1,7 @@
 --
 --  A expanding universe 
 --  by Jaue Arias
---  v3.1 - Støy EX
+--  v3.2 - Støy EX
 --      .                   
 --                         
 --          .          .     
@@ -37,8 +37,21 @@ local  intensity = 8
 local  particles = {}
 local    density = 96
 
-local      focus = 3
-local prev_focus = 1
+-- stars for PLAY mode (Nebulosa)
+local stars = {}
+for i = 1, 50 do
+   stars[i] = {
+      x = math.random(1, 128),
+      y = math.random(1, 64),
+      phase = math.random() * 2 * math.pi,
+      speed = 0.1 + math.random() * 0.2,
+      base_level = 3 + math.random() * 5,
+      twinkle = 0,
+   }
+end
+
+local      focus = 4
+local prev_focus = 3
 
 local    playing = {}
 local      voice = 1
@@ -68,9 +81,34 @@ local      trail = 8
 local sequencers = {}
 for i = 1, 3 do
    sequencers[i] = {data = {}, state = 0, playhead = 0, last_cpu_time = 0,
-                    start_time = 0, duration = 0, double_click_timer = nil, press_time = 0}
+                    start_time = 0, duration = 0, double_click_timer = nil, press_time = 0,
+                    pending_change = nil}
 end
 local seq_clock_ids = {}
+
+-- Quantize a sequencer state change to the next clock boundary (or immediate if OFF)
+local function _quantize_seq_change(id, fn)
+   local s = sequencers[id]
+   if not s then return end
+   if s.pending_change then
+      clock.cancel(s.pending_change)
+      s.pending_change = nil
+   end
+   local quant_val = params:get("seq" .. id .. "_quant") or 1
+   if quant_val == 1 then
+      fn()
+   else
+      local div_beats = {nil, 4, 2, 1, 0.5, 0.25, 0.125}
+      local div = div_beats[quant_val] or 4
+      local next_beat = math.ceil(clock.get_beats() / div) * div
+      local wait = (next_beat - clock.get_beats()) * clock.get_beat_sec()
+      if wait < 0 then wait = 0 end
+      s.pending_change = clock.run(function()
+         s.pending_change = nil
+         fn()
+      end, wait)
+   end
+end
 
 -- drone snapshots (ncoco-style)
 local drone_snaps = {nil, nil, nil, nil}
@@ -218,18 +256,18 @@ local function play_note(x, y, z, note, seq_note)
       end
       table.insert(playing, {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time(), seq_note = seq_note or false})
       engine.harvest_note_on(note + transpose, velocity, duration)
-   else
-      for i, v in pairs(playing) do
-         if v.x == x and v.y == y then
-            engine.harvest_note_off(playing[i].note + playing[i].transpose)
-            table.remove(playing, i)
-            break
-         end
-      end
-   end
-end
-
-local function hold_note(x, y, z, note)
+    else
+       for i, v in pairs(playing) do
+          if v.x == x and v.y == y and not v.held then
+             engine.harvest_note_off(playing[i].note + playing[i].transpose)
+             table.remove(playing, i)
+             break
+          end
+       end
+    end
+ end
+ 
+ local function hold_note(x, y, z, note)
    local voice = nil
    if z == 1 then
       note = note or xy_to_note(x, y)
@@ -431,16 +469,12 @@ function init()
       type        = "option",
       id          = "focus",
       name        = "Focus",
-      options     = {"Jord", "Løv", "Lys"},
-      default     = 1, 
+      options     = {"Jord", "Løv", "Lys", "Play"},
+      default     = 4,
       action      = function(x)
          prev_focus = focus
          focus = x
-         if focus == 1 then
-            seed(particles, density)
-         elseif focus == 2 then
-            seed(particles, density)
-         elseif focus == 3 then
+         if focus >= 1 and focus <= 3 then
             seed(particles, density)
          end
       end
@@ -657,7 +691,7 @@ function init()
    -- Initialize base_values from loaded PSET params (compatibility with old PSETs)
    init_base_values()
 
-   params:set("focus", 3)
+   params:set("focus", 4)
 
    -- launch sequencer clock coroutines (staggered to avoid CPU spike)
    clock.run(function()
@@ -714,7 +748,7 @@ function init()
 
          local fader_display
          if p_name == "poly_max_attack" or p_name == "poly_max_release" then
-            local k, c = 12, 0.93
+            local k, c = 5, 0.55
             local sig = function(v) return 1/(1+math.exp(-k*(v-c))) end
             local s0, s1 = sig(0), sig(1)
             local sn = (sig(target_val) - s0) / (s1 - s0)
@@ -734,7 +768,7 @@ function init()
                elseif p_name == "fx_time" then
                   current_display = string.format("%.2f s", current_val)
                 elseif p_name == "poly_max_attack" or p_name == "poly_max_release" then
-                   local k, c = 12, 0.93
+                   local k, c = 5, 0.55
                    local sig = function(v) return 1/(1+math.exp(-k*(v-c))) end
                    local s0, s1 = sig(0), sig(1)
                    local sn = (sig(current_val) - s0) / (s1 - s0)
@@ -790,10 +824,18 @@ function key(n, z)
       return
    end
 
-   if n == 2 and z == 1 and not k3_held then params:set("focus", 1) end
-   if n == 3 and z == 1 and not k2_held then params:set("focus", 2) end
-   if k2_held and k3_held then params:set("focus", 3) end
-end
+   -- K2/K3 cycle circularly through 4 focus modes
+   if n == 2 and z == 1 and not k3_held then
+      local next_focus = focus - 1
+      if next_focus < 1 then next_focus = 4 end
+      params:set("focus", next_focus)
+   end
+   if n == 3 and z == 1 and not k2_held then
+      local next_focus = focus + 1
+      if next_focus > 4 then next_focus = 1 end
+      params:set("focus", next_focus)
+   end
+ end
 
 -- norns: encoders
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
@@ -884,36 +926,52 @@ g.key = function(x, y, z)
    -- parameter looper buttons (delegated to Loopers module, row 8 cols 7-12)
    if Loopers.grid_key(x, y, z, shift_held) then return end
 
-   -- sequencer buttons (row 8, cols 14-16)
+   -- sequencer buttons (row 8, cols 14-16) with quantization
    if y == 8 and x >= 14 and x <= 16 and z == 1 then
       local id = x - 13
       local s = sequencers[id]
       s.press_time = util.time()
       if s.state == 0 then
-         s.state = 1; s.data = {}; s.start_time = util.time()
+         _quantize_seq_change(id, function()
+            local ss = sequencers[id]
+            ss.state = 1; ss.data = {}; ss.start_time = util.time()
+         end)
       elseif s.state == 1 then
-         s.duration = util.time() - s.start_time
-         if s.duration < 0.1 then s.duration = 0.1 end
-         s.state = 2; s.start_time = util.time()
+         _quantize_seq_change(id, function()
+            local ss = sequencers[id]
+            ss.duration = util.time() - ss.start_time
+            if ss.duration < 0.1 then ss.duration = 0.1 end
+            ss.state = 2; ss.start_time = util.time()
+         end)
       elseif s.state == 2 or s.state == 4 then
          if s.double_click_timer then
-            s.state = 3; s.double_click_timer = nil
+            _quantize_seq_change(id, function()
+               local ss = sequencers[id]
+               ss.state = 3; ss.double_click_timer = nil
+            end)
          else
             s.double_click_timer = clock.run(function()
                clock.sleep(0.25)
                if s.state == 3 then return end
-               if s.state == 2 then s.state = 4 else s.state = 2 end
+               _quantize_seq_change(id, function()
+                  local ss = sequencers[id]
+                  if ss.state == 2 then ss.state = 4 else ss.state = 2 end
+               end)
                s.double_click_timer = nil
             end)
          end
       elseif s.state == 3 then
-         s.state = 2; s.start_time = util.time()
+         _quantize_seq_change(id, function()
+            local ss = sequencers[id]
+            ss.state = 2; ss.start_time = util.time()
+         end)
       end
       return
    end
    if y == 8 and x >= 14 and x <= 16 and z == 0 then
       local s = sequencers[x - 13]
       if util.time() - (s.press_time or 0) > 1.0 then
+         if s.pending_change then clock.cancel(s.pending_change); s.pending_change = nil end
          s.state = 0; s.data = {}
       end
       return
@@ -999,19 +1057,10 @@ end
 a.key = function(n, z)
    if n == 1 then
       if z == 1 then
-         if focus == 3 then -- to previous
-            focus = prev_focus
-         else               -- to Lys
-            prev_focus = focus
-            focus = 3
-         end
-      end
-      if z == 0 then
-         if focus == 3 then
-            focus = prev_focus
-         else
-            focus = 3
-         end
+         -- cycle forward through 4 modes
+         local next_f = focus + 1
+         if next_f > 4 then next_f = 1 end
+         params:set("focus", next_f)
       end
    end
 end
@@ -1037,6 +1086,13 @@ a.delta = function(n, d)
    end
 
    if focus == 3 then -- Lys
+      if n == 1 then params:delta("fx_peak_1", d * 0.10) end
+      if n == 2 then params:delta("fx_peak_2", d * 0.10) end
+      if n == 3 then params:delta("fx_body"  , d * 0.10) end
+      if n == 4 then params:delta("fx_time"  , d * 0.05) end
+   end
+
+   if focus == 4 then -- Play (same as Lys)
       if n == 1 then params:delta("fx_peak_1", d * 0.10) end
       if n == 2 then params:delta("fx_peak_2", d * 0.10) end
       if n == 3 then params:delta("fx_body"  , d * 0.10) end
@@ -1205,6 +1261,112 @@ function redraw()
          end
       end
       s.fill()
+   end
+
+   if focus == 4 then -- Play (Nebulosa)
+      -- Respiración: poly_shape controls speed (0=transient/fast, 1=sustained/slow)
+      local breath_speed = util.clamp(0.3 + (1 - (Harvest.poly_shape or 0.1)) * 0.7, 0.1, 1.0)
+      local t = util.time() * breath_speed
+
+      -- Light background
+      s.level(7)
+      s.rect(0, 0, 128, 64)
+      s.fill()
+
+      -- Nebulosas oscuras (softer than Lys, with drift)
+      local body_size = 20 + math.floor(30 * util.clamp(Harvest.fx_body or 0, 0, 1))
+      local gain_val = params:get("fx_gain") or 0.5
+      local gain_norm = util.clamp((gain_val - 0.5) / 15.5, 0, 1)
+      local nebula_level = 2 + math.floor(gain_norm * 3)  -- gain makes nebulas darker/bigger
+
+      s.level(nebula_level)
+      s.blend_mode(5)
+
+      local offset_1 = 128 * (Harvest.fx_peak_1 or 0)
+      local drift_1 = math.sin(t * 0.3) * 8
+      local size_1 = body_size + math.floor(gain_norm * 10)
+      s.move((32 - size_1) + offset_1 + drift_1, 0)
+      s.line((-size_1 - 32) + offset_1 + drift_1, 64)
+      s.line((-size_1 + 32) + offset_1 + drift_1, 64)
+      s.line((size_1 + 32) + offset_1 + drift_1, 0)
+      s.fill()
+
+      local offset_2 = 128 * (Harvest.fx_peak_2 or 0)
+      local drift_2 = math.sin(t * 0.25 + 1.5) * 8
+      local size_2 = body_size + math.floor(gain_norm * 10)
+      s.move((32 - size_2) + offset_2 + drift_2, 0)
+      s.line((-size_2 - 32) + offset_2 + drift_2, 64)
+      s.line((-size_2 + 32) + offset_2 + drift_2, 64)
+      s.line((size_2 + 32) + offset_2 + drift_2, 0)
+      s.fill()
+
+      s.blend_mode(0)
+
+      -- Velo poly (very subtle dark overlay)
+      local poly_offset = 64 * (Harvest.poly_timbre or 0.2)
+      s.level(0)
+      if (Harvest.poly_timbre or 0) < 0.5 then
+         s.move(64 + poly_offset, 0)
+         s.line(0 + poly_offset, 64)
+         s.line(0, 64)
+         s.line(0, 0)
+         s.fill()
+      else
+         s.move(88, 0)
+         s.line(24, 64)
+         s.line(0, 64)
+         s.line(0, 0)
+         s.fill()
+      end
+
+      -- Poly shadows (subtle, from Løv)
+      s.level(3)
+      for n = 1, math.max(math.floor(#particles * util.clamp(Harvest.poly_bias or 0, 0, 1) * 0.5), 1) do
+         local px = particles[n].x
+         local py = particles[n].y
+         for sn = 1, 2 do
+            if particles[n].on == true then
+               s.pixel(px - sn, py + sn)
+            end
+         end
+      end
+      s.fill()
+
+      -- Stars (twinkling, organic)
+      local bias_norm = util.clamp(((Harvest.drone_bias or 0) + 1) / 2, 0, 1)
+      local num_stars = math.floor(10 + 40 * bias_norm)
+      local timbre_val = Harvest.drone_timbre or 0.5
+      local noise_val = Harvest.drone_noise or 0
+
+      for i = 1, num_stars do
+         local star = stars[i]
+         -- Twinkle: sine wave with individual phase
+         local wave = (math.sin(t * star.speed + star.phase) + 1) / 2
+         -- Random flash (drone_noise controls probability)
+         if math.random() < noise_val * 0.02 then
+            star.twinkle = 1.0
+         end
+         star.twinkle = star.twinkle * 0.95
+
+         local brightness = wave * 0.6 + star.twinkle * 0.4
+         -- drone_timbre controls base brightness
+         local base_bright = timbre_val < 0.5 and (3 + timbre_val * 10) or (8 + timbre_val * 7)
+         local level = math.floor(util.clamp(base_bright * brightness, 1, 15))
+
+         s.level(level)
+         if gain_norm > 0.3 and level > 8 then
+            -- Bloom at high gain: draw small cross/plus
+            s.pixel(star.x, star.y)
+            s.pixel(star.x - 1, star.y)
+            s.pixel(star.x + 1, star.y)
+            s.pixel(star.x, star.y - 1)
+            s.pixel(star.x, star.y + 1)
+            s.fill()
+         else
+            s.pixel(star.x, star.y)
+            s.fill()
+         end
+      end
    end
 
    -- E1/E2/E3 value displays (overlaid on background graphics)
@@ -1561,7 +1723,7 @@ function redraw_arc()
       a:led(4, 54, 1)
    end
 
-   if focus == 3 then -- Lys
+   if focus == 3 or focus == 4 then -- Lys / Play (same arc display)
       local width = 8
       local p
 
