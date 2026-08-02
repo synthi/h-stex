@@ -741,8 +741,8 @@ function init()
    -- OSC handler: receive real envelope phase from SC engine (ground truth for grid LED sync)
    osc.event = function(path, args, from)
       if path == '/harvest_env' then
-         local env_val = args[1] or 0
-         local midi_note = args[2] or 60
+         local env_val = args[4] or 0
+         local midi_note = args[5] or 60
          for _, p in ipairs(playing) do
             if p.note == midi_note then
                p.env_val = env_val
