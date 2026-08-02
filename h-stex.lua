@@ -43,6 +43,7 @@ end
 
 local  arc_dirty = true
 local     splash = true
+local last_env_cycle = 0
 local  intensity = 8
 local  particles = {}
 local    density = 96
@@ -1790,10 +1791,19 @@ function redraw_grid(frame)
    local release = util.clamp(linselect(idx, {0.01, max_r, max_r, 0.01}) * scale_val, 0.01, max_r)
    local env_cycle = 2 * (attack + release)
 
+   -- Detect envelope cycle change: reset note timestamps so visual phase stays in sync with audio
+   if math.abs(env_cycle - last_env_cycle) > 0.001 then
+      local now = util.time()
+      for n = 1, #playing do
+         playing[n].timestamp = now
+      end
+      last_env_cycle = env_cycle
+   end
+
    -- light up all playing notes with envelope-driven brightness (4-15)
    for n = 1, #playing do
       local p = playing[n]
-      local t = (util.time() - (p.timestamp or 0)) % env_cycle
+      local t = (util.time() - (p.timestamp or 0)) % last_env_cycle
       local env_val
       if t < attack then
          env_val = t / attack
@@ -1817,7 +1827,7 @@ function redraw_grid(frame)
    if Harvest.poly_loop == 0 then
       set_led(2, 1, 1)  -- dim when off
    else
-      local t = util.time() % env_cycle
+      local t = util.time() % last_env_cycle
       local env_val
       if t < attack then
          env_val = t / attack
