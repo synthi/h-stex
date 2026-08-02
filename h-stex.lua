@@ -1791,10 +1791,17 @@ function redraw_grid(frame)
    local release = util.clamp(linselect(idx, {0.01, max_r, max_r, 0.01}) * scale_val, 0.01, max_r)
    local env_cycle = 2 * (attack + release)
 
-   -- Detect envelope cycle change: update stable cycle (used for modulo, prevents flickering during knob movement)
-   if math.abs(env_cycle - last_env_cycle) > 0.001 then
-      last_env_cycle = env_cycle
+   -- Detect envelope cycle change: proportionally re-phase each note
+   -- so it keeps its relative position (e.g. 40% → 40% in new cycle)
+   if last_env_cycle > 0.001 and math.abs(env_cycle - last_env_cycle) > 0.001 then
+      local now = util.time()
+      for n = 1, #playing do
+         local p = playing[n]
+         local old_phase = ((now - (p.timestamp or 0)) % last_env_cycle) / last_env_cycle
+         p.timestamp = now - (old_phase * env_cycle)
+      end
    end
+   last_env_cycle = env_cycle
 
    -- light up all playing notes with envelope-driven brightness (4-15)
    for n = 1, #playing do
