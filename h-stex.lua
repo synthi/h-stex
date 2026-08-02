@@ -1,7 +1,7 @@
 --
 --  A expanding universe 
 --  by Jaue Arias
---  v3.2 - Støy EX
+--  v3.3 - Støy EX
 --      .                   
 --                         
 --          .          .     
@@ -461,7 +461,7 @@ function init()
       type = "group",
       id   = "harvest",
       name = "HØST",
-      n    = 49
+      n    = 52
    }
 
    params:add_separator("kontroll", "CONTROL")
