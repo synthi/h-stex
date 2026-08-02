@@ -303,7 +303,7 @@ local function play_note(x, y, z, note, seq_note)
          engine.harvest_note_off(playing[1].note + playing[1].transpose)
          table.remove(playing, 1)
       end
-      table.insert(playing, {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time(), seq_note = seq_note or false})
+      table.insert(playing, {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time(), seq_note = seq_note or false, env_val = 0})
       engine.harvest_note_on(note + transpose, velocity, duration)
     else
        for i, v in pairs(playing) do
@@ -334,7 +334,7 @@ local function play_note(x, y, z, note, seq_note)
             engine.harvest_note_off(playing[1].note + playing[1].transpose)
             table.remove(playing, 1)
          end
-         table.insert(playing, {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time()})
+         table.insert(playing, {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time(), env_val = 0})
          engine.harvest_note_on(note + transpose, velocity, duration)
       end
    else
@@ -741,7 +741,7 @@ function init()
    -- OSC handler: receive real envelope phase from SC engine (ground truth for grid LED sync)
    osc.event = function(path, args, from)
       if path == '/harvest_env' then
-         local env_val = args[1] or 0.5
+         local env_val = args[1] or 0
          local midi_note = args[2] or 60
          for _, p in ipairs(playing) do
             if p.note == midi_note then
@@ -1798,7 +1798,7 @@ function redraw_grid(frame)
    -- Uses real envelope phase from SC engine via OSC (ground truth)
    for n = 1, #playing do
       local p = playing[n]
-      local env_val = p.env_val or 0.5
+      local env_val = p.env_val or 0
       set_led(p.x, p.y, 4 + math.floor(11 * env_val))
    end
 
@@ -1808,8 +1808,8 @@ function redraw_grid(frame)
       set_led(pn.x, pn.y, 1 + math.floor(5 * pending_wave + 0.5))
    end
 
-   -- env loop LED at (2,1): fixed brightness (notes now show envelope individually)
-   set_led(2, 1, Harvest.poly_loop == 0 and 1 or 4)
+   -- env loop LED at (2,1): same brightness pattern as hold button
+   set_led(2, 1, Harvest.poly_loop == 0 and 4 or 10)
    -- octave LEDs in row 1 cols 4-5-6 (linear 0..4: -2,-1,0,+1,+2)
    local oct_wave = (math.sin(frame * 0.10) + 1) / 2
    local oct_led_1 = 1  -- x=4 (left), brillo 1 when not selected
