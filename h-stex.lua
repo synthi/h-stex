@@ -1803,7 +1803,7 @@ function redraw_grid(frame)
          else
             env_val = 1 - (t - 2 * attack - release) / release
          end
-         set_led(p.x, p.y, 7 + math.floor(8 * env_val))
+         set_led(p.x, p.y, 4 + math.floor(11 * env_val))
       else
          set_led(p.x, p.y, 10)
       end
