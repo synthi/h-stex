@@ -1,7 +1,7 @@
 --
 --  A expanding universe 
 --  by Jaue Arias
---  v3.3 - Støy EX
+--  v3.4 - Støy EX
 --      .                   
 --                         
 --          .          .     
@@ -39,11 +39,16 @@ local    density = 96
 
 -- stars for PLAY mode (Terrario espacial)
 -- Each star has a life cycle: born → brighten → fade → respawn at new position
+-- Varied sizes: ~85% 1px, ~13% 2px (cross), ~2% 3px "gorditas" (diamond)
 local stars = {}
-for i = 1, 50 do
+for i = 1, 96 do
+   local r = math.random()
+   local size = 1
+   if r > 0.98 then size = 3 elseif r > 0.85 then size = 2 end
    stars[i] = {
       x = math.random(1, 128),
       y = math.random(1, 64),
+      size = size,
       phase = math.random() * 2 * math.pi,
       speed = 0.1 + math.random() * 0.2,
       base_level = 3 + math.random() * 5,
@@ -54,20 +59,29 @@ for i = 1, 50 do
    }
 end
 
--- Light orbs (planets/meteors): grow → brighten → shrink → fade
+-- Light orbs: subtle & slow, ALWAYS diagonal drift (top-right → bottom-left, like shadows)
+-- Respawn anywhere on screen, keeping the same diagonal trajectory
 local orbs = {}
 for i = 1, 4 do
+   local spd = 0.02 + math.random() * 0.03
    orbs[i] = {
       x = math.random(1, 128),
       y = math.random(1, 64),
-      vx = (math.random() - 0.5) * 0.5,
-      vy = (math.random() - 0.5) * 0.5,
+      vx = -spd,                        -- always left
+      vy = spd * (0.7 + math.random() * 0.6),  -- always down (diagonal)
       size = 1,
-      max_size = 3 + math.random() * 4,  -- 3-7px
+      max_size = 1 + math.random(),     -- radius 1-2px (subtle)
       life = math.random() * 2 * math.pi,
       life_speed = 0.03 + math.random() * 0.08,
       alive = false,
+      wobble = math.random() * 2 * math.pi,
    }
+end
+
+-- Shooting stars (estrellas fugaces): fast diagonal streaks spawned by drone_noise
+local shooters = {}
+for i = 1, 3 do
+   shooters[i] = {x = 0, y = 0, vx = 0, vy = 0, len = 4, life = 0, alive = false}
 end
 
 local      focus = 4
@@ -1285,17 +1299,38 @@ function redraw()
    end
 
    if focus == 4 then -- Play (Terrario espacial)
-      -- Respiración: poly_shape controls speed (0=transient/fast, 1=sustained/slow)
+      -- Respiración global: poly_shape controla velocidad (0=rápida, 1=lenta)
       local breath_speed = util.clamp(0.3 + (1 - (Harvest.poly_shape or 0.1)) * 0.7, 0.1, 1.0)
       local t = util.time() * breath_speed
+
+      -- fx_gain casi nunca pasa de 3 (rango 0.5-16): normalizar pronto (0.5→0, ~3→1)
       local gain_val = params:get("fx_gain") or 0.5
-      local gain_norm = util.clamp((gain_val - 0.5) / 15.5, 0, 1)
+      local gain_norm = util.clamp((gain_val - 0.5) / 2.5, 0, 1)
 
-      -- === FONDO NEGRO ===
-      -- (s.clear() already gives black; no fill)
+      -- bias: rango -1..1 con centro 0 → 0..1 (centro = 0.5)
+      local bias_norm = util.clamp(((Harvest.drone_bias or 0) + 1) / 2, 0, 1)
+      local poly_bias_norm = util.clamp(((Harvest.poly_bias or 0) + 1) / 2, 0, 1)
 
-      -- === VELOS LYS (triángulos peak1/peak2, como en Lys) ===
-      -- Sobre negro, blend_mode(5) = SCREEN crea velo luminoso tenue
+      -- noise casi siempre bajo: ×10 + curva suave para ver efecto desde valores mínimos
+      local noise_val = util.clamp((Harvest.drone_noise or 0) * 10, 0, 1) ^ 0.7
+      local poly_noise_val = util.clamp((Harvest.poly_noise or 0) * 10, 0, 1) ^ 0.7
+
+      local timbre_val = Harvest.drone_timbre or 0.5
+      local body_val = Harvest.fx_body or 0
+      local time_val = Harvest.fx_time or 0.5
+
+      -- === 1. CAPA GRIS OSCURA (nebulosa de fondo, densidad = poly_bias) ===
+      local neb_count = math.floor(#particles * poly_bias_norm * 0.6)
+      for n = 1, neb_count do
+         local p = particles[n]
+         local nx = p.x + math.sin(t * 0.15 + n * 0.7) * 2
+         local ny = p.y + math.cos(t * 0.12 + n * 1.3) * 1.5
+         s.level(n % 5 == 1 and 2 or 1)
+         s.pixel(util.clamp(math.floor(nx), 1, 128), util.clamp(math.floor(ny), 1, 64))
+      end
+      s.fill()
+
+      -- === 2. VELOS LYS (triángulos peak1/peak2, exactos como en Lys) ===
       s.level(1)
       s.blend_mode(5)
 
@@ -1313,12 +1348,8 @@ function redraw()
       s.line(( 32 + 32) + offset_2,  0)
       s.fill()
 
-      s.blend_mode(0)
-
       -- === VELO POLY (triángulo tenue de Løv, desplazado por poly_timbre) ===
       local poly_offset = 64 * (Harvest.poly_timbre or 0.2)
-      s.level(1)
-      s.blend_mode(5)
       if (Harvest.poly_timbre or 0) < 0.5 then
          s.move(64 + poly_offset, 0)
          s.line(0 + poly_offset, 64)
@@ -1334,118 +1365,203 @@ function redraw()
       end
       s.blend_mode(0)
 
-      -- === ESTRELLAS (drone_bias = densidad, ciclo vida: nacer→brillar→desvanecer→respawn) ===
-      local bias_norm = util.clamp(((Harvest.drone_bias or 0) + 1) / 2, 0, 1)
-      local num_stars = math.floor(5 + 45 * bias_norm)
-      local timbre_val = Harvest.drone_timbre or 0.5
-      -- drone_noise sensible a valores bajos: multiplicar por 10
-      local noise_val = util.clamp((Harvest.drone_noise or 0) * 10, 0, 1)
+      -- === 3. SOMBRAS LYS (largas diagonales, controladas por fx_body, NO por time) ===
+      local body_dist = 2 * math.abs(((body_val - 0.5) % 1) - 0.5)  -- 0 centro, 1 extremos
+      local shad_len = 2 + math.floor(62 * body_dist)
+      local shad_count = math.floor(#particles * util.clamp(0.3 + 0.7 * body_dist, 0, 1))
+      s.level(2)
+      for n = 1, shad_count do
+         local p = particles[n]
+         for k = 1, shad_len do
+            s.pixel(p.x - k, p.y + k)  -- diagonal: arriba-derecha → abajo-izquierda
+         end
+      end
+      s.fill()
 
+      -- === 4. SOMBRAS POLY (cortas 2px, tono más claro, densidad = poly_bias) ===
+      local pshad_count = math.floor(#particles * poly_bias_norm)
+      s.level(4)
+      for n = 1, pshad_count do
+         local p = particles[n]
+         s.pixel(p.x - 1, p.y + 1)
+         s.pixel(p.x - 2, p.y + 2)
+      end
+      s.fill()
+
+      -- === 5. PUNTOS ESTÁTICOS (densidad = 1 - fx_time, flicker = poly_noise) ===
+      local stat_count = math.max(math.floor(#particles * (1 - time_val)), 1)
+      if frame % 4 == 1 then
+         for n = 1, stat_count do
+            if math.random() < poly_noise_val * 0.1 then
+               particles[n].level = 2
+            else
+               particles[n].level = 7
+            end
+         end
+      end
+      for n = 1, stat_count do
+         local p = particles[n]
+         s.level(p.level)
+         s.pixel(p.x, p.y)
+      end
+      s.fill()
+
+      -- === 6. ESTRELLAS (cantidad = drone_bias, tamaños variados, ciclo vida + respawn) ===
+      local num_stars = math.floor(24 + 72 * bias_norm)  -- centro(0) = 60 estrellas
       for i = 1, num_stars do
          local star = stars[i]
-         -- Life cycle: sin wave over 0..2π
          star.life = star.life + star.life_speed * breath_speed
          if star.life > 2 * math.pi then
             star.life = 0
-            -- Respawn at new random position
             star.x = math.random(1, 128)
             star.y = math.random(1, 64)
             star.alive = true
          end
 
-         -- Brightness envelope: sin^2 for smooth born→peak→fade
          local life_norm = star.life / (2 * math.pi)
          local env = math.sin(life_norm * math.pi) ^ 2
 
-         -- Twinkle (drone_noise, sensitive at low values)
+         -- twinkle por drone_noise (sensible a valores bajos)
          if math.random() < noise_val * 0.05 then
             star.twinkle = 1.0
          end
          star.twinkle = star.twinkle * 0.9
 
-         -- drone_timbre controls base brightness
+         -- brillo base por drone_timbre (estilo Jord)
          local base_bright = timbre_val < 0.5 and (2 + timbre_val * 8) or (6 + timbre_val * 6)
          local brightness = env * 0.7 + star.twinkle * 0.3
          local level = math.floor(util.clamp(base_bright * brightness, 1, 12))
 
          if level > 1 then
             s.level(level)
-            if gain_norm > 0.3 and level > 7 then
-               -- Bloom at high gain: small cross
-               s.pixel(star.x, star.y)
-               s.pixel(star.x - 1, star.y)
-               s.pixel(star.x + 1, star.y)
-               s.pixel(star.x, star.y - 1)
-               s.pixel(star.x, star.y + 1)
-               s.fill()
+            local sx, sy = star.x, star.y
+            if star.size == 3 and level > 5 then
+               -- gordita: diamante 3px
+               s.pixel(sx, sy)
+               s.pixel(sx - 1, sy) s.pixel(sx + 1, sy)
+               s.pixel(sx, sy - 1) s.pixel(sx, sy + 1)
+               s.pixel(sx - 1, sy - 1) s.pixel(sx + 1, sy - 1)
+               s.pixel(sx - 1, sy + 1) s.pixel(sx + 1, sy + 1)
+            elseif star.size == 2 and level > 4 then
+               -- mediana: cruz 2px
+               s.pixel(sx, sy)
+               s.pixel(sx - 1, sy) s.pixel(sx + 1, sy)
+               s.pixel(sx, sy - 1) s.pixel(sx, sy + 1)
             else
-               s.pixel(star.x, star.y)
+               s.pixel(sx, sy)
+            end
+            -- bloom por gain (sensible: desde gain ~1.2)
+            if gain_norm > 0.25 and level > 7 and star.size >= 2 then
+               s.pixel(sx - 2, sy) s.pixel(sx + 2, sy)
+               s.pixel(sx, sy - 2) s.pixel(sx, sy + 2)
+            end
+            s.fill()
+         end
+      end
+
+      -- === 7. ESTRELLAS FUGACES (drone_noise: rachas diagonales rápidas) ===
+      if noise_val > 0.03 and math.random() < noise_val * 0.015 then
+         for i = 1, 3 do
+            if not shooters[i].alive then
+               local spd = 1.2 + math.random() * 0.8
+               shooters[i].x = math.random(40, 128)
+               shooters[i].y = math.random(1, 30)
+               shooters[i].vx = -spd
+               shooters[i].vy = spd * 0.8
+               shooters[i].len = 3 + math.random() * 3
+               shooters[i].life = 1
+               shooters[i].alive = true
+               break
+            end
+         end
+      end
+      for i = 1, 3 do
+         local sh = shooters[i]
+         if sh.alive then
+            sh.x = sh.x + sh.vx
+            sh.y = sh.y + sh.vy
+            sh.life = sh.life - 0.02
+            if sh.life <= 0 or sh.x < 1 or sh.y > 64 then
+               sh.alive = false
+            else
+               local head = math.floor(util.clamp(3 + sh.life * 7, 2, 10))
+               for k = 0, math.floor(sh.len) do
+                  local px = math.floor(sh.x + k * 0.8)
+                  local py = math.floor(sh.y - k * 0.64)
+                  if px >= 1 and px <= 128 and py >= 1 and py <= 64 then
+                     s.level(util.clamp(head - k * 2, 1, 10))
+                     s.pixel(px, py)
+                  end
+               end
                s.fill()
             end
          end
       end
 
-      -- === PUNTOS DE LUZ (poly_bias = cantidad, crecen→brillan→encogen→desvanecen) ===
-      local poly_bias_norm = util.clamp(((Harvest.poly_bias or 0) + 1) / 2, 0, 1)
+      -- === 8. ORBES (cantidad = poly_bias, sutiles, deriva diagonal lenta, respawn anywhere) ===
       local num_orbs = math.floor(1 + 3 * poly_bias_norm)
-      -- poly_noise sensible a valores bajos: multiplicar por 10
-      local poly_noise_val = util.clamp((Harvest.poly_noise or 0) * 10, 0, 1)
-
       for i = 1, num_orbs do
          local orb = orbs[i]
-         -- Life cycle
          orb.life = orb.life + orb.life_speed * breath_speed
          if orb.life > 2 * math.pi then
             orb.life = 0
             orb.alive = true
-            orb.x = math.random(5, 123)
-            orb.y = math.random(5, 59)
-            orb.max_size = 3 + math.random() * 4  -- 3-7px
-            orb.vx = (math.random() - 0.5) * 0.5
-            orb.vy = (math.random() - 0.5) * 0.5
+            -- respawn en cualquier lugar; trayectoria SIEMPRE diagonal (como las sombras)
+            orb.x = math.random(10, 118)
+            orb.y = math.random(6, 58)
+            orb.max_size = 1 + math.random()
+            local spd = 0.02 + math.random() * 0.03
+            orb.vx = -spd
+            orb.vy = spd * (0.7 + math.random() * 0.6)
          end
 
-         -- Size envelope: grow → peak → shrink
          local life_norm = orb.life / (2 * math.pi)
-         local size_env = math.sin(life_norm * math.pi)
-         local size = math.max(1, math.floor(orb.max_size * size_env))
+         local env = math.sin(life_norm * math.pi)
 
-         -- Brightness follows size
-         local brightness = size_env
-         local level = math.floor(util.clamp(2 + brightness * 10, 1, 12))
+         -- wobble de brillo por poly_noise (sensible a valores bajos)
+         orb.wobble = orb.wobble + 0.1
+         local wob = 1 + math.sin(orb.wobble) * poly_noise_val * 0.5
 
-         -- Drift (poly_noise makes it more chaotic)
-         orb.x = orb.x + orb.vx * (1 + poly_noise_val * 2)
-         orb.y = orb.y + orb.vy * (1 + poly_noise_val * 2)
-         -- Wrap around edges
-         if orb.x < 1 then orb.x = 127 end
-         if orb.x > 128 then orb.x = 2 end
-         if orb.y < 1 then orb.y = 63 end
-         if orb.y > 64 then orb.y = 2 end
-
-         -- Draw orb as filled circle (approximate with pixels)
-         s.level(level)
-         for dy = -size, size do
-            for dx = -size, size do
-               if dx * dx + dy * dy <= size * size then
-                  s.pixel(math.floor(orb.x + dx), math.floor(orb.y + dy))
-               end
-            end
+         -- deriva diagonal lenta: arriba-derecha → abajo-izquierda (~0.6-1.5 px/s)
+         orb.x = orb.x + orb.vx
+         orb.y = orb.y + orb.vy
+         -- si sale de pantalla → respawn en cualquier lugar (nunca mismo sitio)
+         if orb.x < 2 or orb.y > 62 then
+            orb.x = math.random(10, 118)
+            orb.y = math.random(6, 58)
+            orb.life = 0
          end
+
+         local size = math.max(1, math.floor(orb.max_size * env + 0.5))
+         local level = math.floor(util.clamp((3 + env * 5) * wob, 2, 8))
+         local ox, oy = math.floor(orb.x), math.floor(orb.y)
+
+         -- cola diagonal corta detrás del orbe (coherente con su trayectoria)
+         s.level(2)
+         s.pixel(ox + 1, oy - 1)
+         s.pixel(ox + 2, oy - 2)
          s.fill()
 
-         -- Gain bloom: extra ring at high gain
-         if gain_norm > 0.3 then
-            s.level(math.floor(level * 0.5))
-            local ring = size + 1
-            for dy = -ring, ring do
-               for dx = -ring, ring do
-                  local d = dx * dx + dy * dy
-                  if d > size * size and d <= ring * ring then
-                     s.pixel(math.floor(orb.x + dx), math.floor(orb.y + dy))
-                  end
-               end
-            end
+         -- cuerpo suave: centro brillante, bordes tenues
+         s.level(level)
+         s.pixel(ox, oy)
+         s.fill()
+         s.level(math.max(2, level - 3))
+         s.pixel(ox - 1, oy) s.pixel(ox + 1, oy)
+         s.pixel(ox, oy - 1) s.pixel(ox, oy + 1)
+         s.fill()
+         if size >= 2 then
+            s.level(math.max(1, level - 5))
+            s.pixel(ox - 1, oy - 1) s.pixel(ox + 1, oy - 1)
+            s.pixel(ox - 1, oy + 1) s.pixel(ox + 1, oy + 1)
+            s.fill()
+         end
+
+         -- bloom por gain (sensible: desde gain ~1.2)
+         if gain_norm > 0.2 and env > 0.6 then
+            s.level(2)
+            s.pixel(ox - 2, oy) s.pixel(ox + 2, oy)
+            s.pixel(ox, oy - 2) s.pixel(ox, oy + 2)
             s.fill()
          end
       end
