@@ -1,7 +1,7 @@
 --
 --  A expanding universe 
 --  by Jaue Arias
---  v3.5 - Støy EX
+--  v4.0 - Støy EX
 --      .                   
 --                         
 --          .          .     
@@ -22,6 +22,7 @@ engine.name = "Harvest"
          _16n = include("lib/16n")
     Loopers = include("lib/loopers")
     LFOs = include("lib/lfos")
+  EnvQuant = include("lib/env_quant")
 
 local save_on_exit = true
 
@@ -99,6 +100,8 @@ local prev_focus = 3
 
 local    playing = {}
 local note_to_playing = {}  -- midi_note -> playing index (O(1) lookup for OSC env)
+local armed_notes = {}       -- note_quant: pads armed to fire on next clock boundary
+local disarm_all_notes       -- forward declaration (assigned after hold_note)
 local      voice = 1
 local  transpose = 0
 local       note
@@ -249,6 +252,7 @@ local function seed(t, n)
 end
 
 local function stop_keys()
+   if disarm_all_notes then disarm_all_notes() end
    for n = 1, #playing do
       engine.harvest_note_off(playing[n].note + playing[n].transpose)
    end
@@ -376,6 +380,64 @@ local function play_note(x, y, z, note, seq_note)
    end
 end
 
+-- note quantization: armed notes fire on next clock boundary
+-- (manual grid presses only; sequencers/PSET/retrigger bypass this)
+local note_quant_beats = {nil, 4, 2, 1, 0.5, 0.25, 0.125}  -- index = note_quant option
+
+local function record_note_event(x, y, z)
+   for i = 1, 3 do
+      local s = sequencers[i]
+      if s.state == 1 or s.state == 4 then
+         local dt = util.time() - s.start_time
+         if s.state == 4 then dt = dt % s.duration end
+         if #s.data < 10000 then
+            table.insert(s.data, {x = x, y = y, z = z, dt = dt, note = xy_to_note(x, y), oct = oct})
+         end
+      end
+   end
+end
+
+local function fire_armed_note(x, y)
+   record_note_event(x, y, 1)  -- record at fire time: playback matches what was heard
+   if not hold or sostenuto then play_note(x, y, 1) else hold_note(x, y, 1) end
+end
+
+local function arm_note(x, y)
+   local key = x .. "_" .. y
+   if armed_notes[key] then return end
+   local div = note_quant_beats[params:get("note_quant")] or 1
+   local beats_now = clock.get_beats()
+   local wait = (math.ceil(beats_now / div) * div - beats_now) * clock.get_beat_sec()
+   if wait < 0.001 then
+      fire_armed_note(x, y)  -- already on boundary
+      return
+   end
+   armed_notes[key] = {x = x, y = y}
+   armed_notes[key].clock_id = clock.run(function()
+      clock.sleep(wait)
+      armed_notes[key] = nil
+      fire_armed_note(x, y)
+   end)
+end
+
+local function disarm_note(x, y)
+   local key = x .. "_" .. y
+   local a = armed_notes[key]
+   if a then
+      clock.cancel(a.clock_id)
+      armed_notes[key] = nil
+      return true   -- was armed: canceled, never sounded
+   end
+   return false      -- already fired: caller must pass release through
+end
+
+disarm_all_notes = function()
+   for key, a in pairs(armed_notes) do
+      clock.cancel(a.clock_id)
+      armed_notes[key] = nil
+   end
+end
+
 local function arc_bar(enc, val, level)
    local range = util.clamp(math.floor(val * 33), 0, 32.999)
    for n = 1, range do
@@ -408,6 +470,9 @@ end
 -- shape=0.67 → attack=max_a*scale, release=max_r*scale → cycle=(max_a+max_r)*scale
 -- shape=1 → attack=max_a*scale, release=0.01 → cycle=max_a*scale+0.01
 local function calc_cycle_len()
+   if EnvQuant.enabled() and EnvQuant.last_cycle > 0 then
+      return 2 * EnvQuant.last_cycle
+   end
    local shape = params:get("poly_shape")
    local scale_val = params:get("poly_scale")
    local max_a = Harvest.max_attack or 0.197
@@ -534,11 +599,24 @@ function init()
    clk_redraw_arc = clock.run(redraw_arc_event)
    clk_splash = clock.run(splash_event)
 
+   -- tempo monitor: re-snap envelope quant when clock tempo changes
+   clk_env_quant = clock.run(function()
+      local last_bs = clock.get_beat_sec()
+      while true do
+         clock.sleep(1/15)
+         local bs = clock.get_beat_sec()
+         if math.abs(bs - last_bs) > 0.0001 then
+            last_bs = bs
+            if EnvQuant.enabled() then EnvQuant.apply() end
+         end
+      end
+   end)
+
    params:add{
       type = "group",
       id   = "harvest",
       name = "HØST",
-      n    = 50
+      n    = 53
    }
 
    params:add_separator("kontroll", "CONTROL")
@@ -1068,18 +1146,10 @@ g.key = function(x, y, z)
       return
    end
 
-   -- keyboard: record for active sequencers (with note pitch stored)
-    if (z == 1 or z == 0) and y <= 7 and x >= math.max(1, 9 - y) then
-      for i = 1, 3 do
-         local s = sequencers[i]
-         if s.state == 1 or s.state == 4 then
-            local dt = util.time() - s.start_time
-            if s.state == 4 then dt = dt % s.duration end
-            if #s.data < 10000 then
-               table.insert(s.data, {x = x, y = y, z = z, dt = dt, note = xy_to_note(x, y), oct = oct})
-            end
-         end
-      end
+   -- keyboard: record for active sequencers
+   -- (with note_quant active, manual presses are recorded at fire time instead)
+   if (z == 1 or z == 0) and y <= 7 and x >= math.max(1, 9 - y) and params:get("note_quant") == 1 then
+      record_note_event(x, y, z)
    end
 
    -- record snapshot button presses for active sequencers
@@ -1136,8 +1206,18 @@ g.key = function(x, y, z)
    elseif y == 1 and x == 6 and z == 1 then
       oct = math.min(4, oct + 1)
    else
-       if y <= 7 and x >= math.max(1, 9 - y) then
-         if not hold or sostenuto then play_note(x, y, z) else hold_note(x, y, z) end
+      if y <= 7 and x >= math.max(1, 9 - y) then
+         if params:get("note_quant") > 1 then
+            if z == 1 then
+               arm_note(x, y)
+            elseif not disarm_note(x, y) then
+               -- already fired: release passes through unquantized, record now
+               record_note_event(x, y, 0)
+               if not hold or sostenuto then play_note(x, y, 0) else hold_note(x, y, 0) end
+            end
+         else
+            if not hold or sostenuto then play_note(x, y, z) else hold_note(x, y, z) end
+         end
       end
    end
 end
@@ -1636,8 +1716,11 @@ function redraw(sframe)
    -- Bottom left: E2 Delay time
    s.move(2, 62)
    s.text("E2 time: " .. string.format("%.2f", params:get("fx_time")) .. "s")
-   -- Bottom right: E3 Env scale
+   -- Bottom right: E3 Env scale (+ snapped division when Env Quant active)
    local scale_str = string.format("%.0f", params:get("poly_scale") * 100) .. "%"
+   if EnvQuant.enabled() and EnvQuant.last_div_idx > 0 then
+      scale_str = scale_str .. " > " .. EnvQuant.div_labels[EnvQuant.last_div_idx]
+   end
    s.move(126, 62)
    s.text_right("E3 scale: " .. scale_str)
 
@@ -1836,6 +1919,11 @@ function redraw_grid(frame)
       set_led(pn.x, pn.y, 1 + math.floor(5 * pending_wave + 0.5))
    end
 
+   -- armed notes (note_quant) blink same as pending
+   for _, a in pairs(armed_notes) do
+      set_led(a.x, a.y, 1 + math.floor(5 * pending_wave + 0.5))
+   end
+
    -- env loop LED at (2,1): same brightness pattern as hold button
    set_led(2, 1, Harvest.poly_loop == 0 and 4 or 10)
    -- octave LEDs in row 1 cols 4-5-6 (linear 0..4: -2,-1,0,+1,+2)
@@ -2028,6 +2116,8 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 function cleanup()
+   if clk_env_quant then clock.cancel(clk_env_quant) end
+   if disarm_all_notes then disarm_all_notes() end
    if clk_screen then clock.cancel(clk_screen) end
    if clk_grid then clock.cancel(clk_grid) end
    for i = 1, 3 do

@@ -5,6 +5,7 @@
 -- v1.5 imminent gloom
 
 local Harvest = {}
+local EnvQuant = include("lib/env_quant")
 
 -- adds a list of params
 -- @bool midicontrol If false, don't build and set-up midi params
@@ -155,7 +156,8 @@ function Harvest.init(midicontrol)
       name        = "Contour",
       controlspec = controlspec.new(0, 1, "lin", 0.001, 0.1),
       action      = function(x)
-         engine.harvest_poly_set("shape", x)
+          engine.harvest_poly_set("shape", x)
+          if EnvQuant.enabled() then EnvQuant.apply() end
 			   Harvest.poly_shape = x
       end
    }
@@ -291,9 +293,13 @@ function Harvest.init(midicontrol)
       name        = "Attack",
       controlspec = controlspec.new(0, 1, "lin", 0.001, 0.5),
       action      = function(x)
-         local val = sigmoid_map(x)
-         engine.harvest_poly_set("max_attack", val)
-         Harvest.max_attack = val
+          local val = sigmoid_map(x)
+          Harvest.max_attack = val
+          if EnvQuant.enabled() then
+             EnvQuant.apply()
+          else
+             engine.harvest_poly_set("max_attack", val)
+          end
       end
    }
 
@@ -303,9 +309,13 @@ function Harvest.init(midicontrol)
       name        = "Decay",
       controlspec = controlspec.new(0, 1, "lin", 0.001, 0.7),
       action      = function(x)
-         local val = sigmoid_map(x)
-         engine.harvest_poly_set("max_release", val)
-         Harvest.max_release = val
+          local val = sigmoid_map(x)
+          Harvest.max_release = val
+          if EnvQuant.enabled() then
+             EnvQuant.apply()
+          else
+             engine.harvest_poly_set("max_release", val)
+          end
       end
    }
    
@@ -318,7 +328,8 @@ function Harvest.init(midicontrol)
          return math.floor(x:get() * 100) .. " %"
       end,
       action      = function(x)
-         engine.harvest_poly_set("scale", x)
+          engine.harvest_poly_set("scale", x)
+          if EnvQuant.enabled() then EnvQuant.apply() end
 			-- Harvest.poly_scale = x
       end
    }
@@ -333,6 +344,33 @@ function Harvest.init(midicontrol)
           Harvest.poly_loop = x - 1
        end
     }
+
+-- quant
+   params:add_separator("quant", "QUANT")
+
+   params:add{
+      type    = "option",
+      id      = "poly_quant",
+      name    = "Env Quant",
+      options = EnvQuant.option_labels,
+      default = 1,
+      action  = function(x)
+         if x > 1 then
+            EnvQuant.apply()
+         else
+            if Harvest.max_attack then engine.harvest_poly_set("max_attack", Harvest.max_attack) end
+            if Harvest.max_release then engine.harvest_poly_set("max_release", Harvest.max_release) end
+         end
+      end
+   }
+
+   params:add{
+      type    = "option",
+      id      = "note_quant",
+      name    = "Note Quant",
+      options = {"OFF", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32"},
+      default = 1,
+   }
 
 -- looper
    params:add_separator("looper", "LOOPERS")
