@@ -265,7 +265,8 @@ function Loopers.grid_key(x, y, z, shift_held)
 end
 
 -- render looper LEDs (row 8, cols 7-11)
-function Loopers.redraw_grid(g)
+-- uses set_led(x, y, b) helper for differential grid updates (ncoco-style)
+function Loopers.redraw_grid_set(g, set_led)
    for i = 1, 6 do
       local x = 6 + i
       local l = Loopers.loopers[i]
@@ -291,7 +292,7 @@ function Loopers.redraw_grid(g)
       elseif l.state == 4 then
          b = 4
       end
-      g:led(x, 8, b)
+      set_led(x, 8, b)
    end
 end
 

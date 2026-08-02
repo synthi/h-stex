@@ -29,10 +29,20 @@ local g = grid.connect()
 local a = arc.connect()
 
 local          s = screen
-local        fps = 30
+local screen_fps = 60
+local  grid_fps = 60
+
+-- grid LED cache for differential updates (ncoco-style: only send LEDs that change)
+local grid_cache = {}
+for x = 1, 16 do
+   grid_cache[x] = {}
+   for y = 1, 8 do
+      grid_cache[x][y] = -1
+   end
+end
+
 local  arc_dirty = true
 local     splash = true
-local      frame = 1
 local  intensity = 8
 local  particles = {}
 local    density = 96
@@ -179,17 +189,21 @@ local scale_root = 0
 -- clock events
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
-local function redraw_event()
+local function screen_event()
+   local sframe = 1
    while true do
-      clock.sleep(1/fps)
-      if frame > fps then
-         frame = 1
-      else
-         frame = frame + 1
-      end
-      arc_dirty = true
-      redraw()
-      redraw_grid()
+      clock.sleep(1 / screen_fps)
+      sframe = sframe + 1
+      redraw(sframe)
+   end
+end
+
+local function grid_event()
+   local frame = 1
+   while true do
+      clock.sleep(1 / grid_fps)
+      frame = frame + 1
+      redraw_grid(frame)
    end
 end
 
@@ -487,7 +501,8 @@ end
 function init()
    seed(particles, density)
 
-   clk_redraw = clock.run(redraw_event)
+   clk_screen = clock.run(screen_event)
+   clk_grid = clock.run(grid_event)
    clk_redraw_arc = clock.run(redraw_arc_event)
    clk_splash = clock.run(splash_event)
 
@@ -1138,7 +1153,7 @@ end
 -- norns: drawing
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
-function redraw()
+function redraw(sframe)
    s.clear()
    
    if splash then
@@ -1155,7 +1170,7 @@ function redraw()
          if particles[n].on then
 
             -- noise
-            if frame % 4 == 1 then
+            if sframe % 4 == 1 then
                if math.random() < Harvest.drone_noise * 0.1 then
                   particles[n].noise = 0.49
                else
@@ -1190,7 +1205,7 @@ function redraw()
       s.fill()
 
       -- noise
-      if frame % 4 == 1 then
+      if sframe % 4 == 1 then
          for n = 1, math.max(math.floor(#particles * (Harvest.poly_bias)), 1) do
             if math.random() < Harvest.poly_noise * 0.1 then
                particles[n].level = 10
@@ -1390,7 +1405,7 @@ function redraw()
 
       -- === 5. PUNTOS ESTÁTICOS (densidad = 1 - fx_time, flicker = poly_noise) ===
       local stat_count = math.max(math.floor(#particles * (1 - time_val)), 1)
-      if frame % 4 == 1 then
+      if sframe % 4 == 1 then
          for n = 1, stat_count do
             if math.random() < poly_noise_val * 0.1 then
                particles[n].level = 2
@@ -1682,29 +1697,58 @@ end
 -- grid: drawing
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
-function redraw_grid()
+function redraw_grid(frame)
    local background = 1
-   g:all(0)
+   local changed = false
+
+   -- Helper: set LED only if brightness changed from cache
+   local function set_led(x, y, b)
+      if grid_cache[x][y] ~= b then
+         g:led(x, y, b)
+         grid_cache[x][y] = b
+         changed = true
+      end
+   end
 
    -- background (diagonal pattern, two lines shorter: 9-y boundary)
    if current_scale == "Chromatic" then
-      for n = 8, 16 do g:led(n, 1, background) end
-      for n = 7, 16 do g:led(n, 2, background) end
-      for n = 6, 16 do g:led(n, 3, background) end
-      for n = 5, 16 do g:led(n, 4, background) end
-      for n = 4, 16 do g:led(n, 5, background) end
-      for n = 3, 16 do g:led(n, 6, background) end
-      for n = 2, 16 do g:led(n, 7, background) end
+      for n = 8, 16 do set_led(n, 1, background) end
+      for n = 7, 16 do set_led(n, 2, background) end
+      for n = 6, 16 do set_led(n, 3, background) end
+      for n = 5, 16 do set_led(n, 4, background) end
+      for n = 4, 16 do set_led(n, 5, background) end
+      for n = 3, 16 do set_led(n, 6, background) end
+      for n = 2, 16 do set_led(n, 7, background) end
    else
       -- same diagonal but only light columns within scale pattern
       local steps = #scales[current_scale]
-      for n = 8, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 1, background) end end
-      for n = 7, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 2, background) end end
-      for n = 6, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 3, background) end end
-      for n = 5, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 4, background) end end
-      for n = 4, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 5, background) end end
-      for n = 3, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 6, background) end end
-      for n = 2, 16 do if ((n - 1) % steps) + 1 <= steps then g:led(n, 7, background) end end
+      for n = 8, 16 do if ((n - 1) % steps) + 1 <= steps then set_led(n, 1, background) end end
+      for n = 7, 16 do if ((n - 1) % steps) + 1 <= steps then set_led(n, 2, background) end end
+      for n = 6, 16 do if ((n - 1) % steps) + 1 <= steps then set_led(n, 3, background) end end
+      for n = 5, 16 do if ((n - 1) % steps) + 1 <= steps then set_led(n, 4, background) end end
+      for n = 4, 16 do if ((n - 1) % steps) + 1 <= steps then set_led(n, 5, background) end end
+      for n = 3, 16 do if ((n - 1) % steps) + 1 <= steps then set_led(n, 6, background) end end
+      for n = 2, 16 do if ((n - 1) % steps) + 1 <= steps then set_led(n, 7, background) end end
+   end
+
+   -- Darken cells outside keyboard area (row 8 cells 6-16, row 7 col 1, row 1 cols 7-16)
+   -- These were previously set to 0 by g:all(0); now we explicitly set them to 0
+   -- (only via cache diff so they're not re-sent every frame)
+   for y = 1, 8 do
+      for x = 1, 16 do
+         local is_keyboard = (y <= 7 and x >= math.max(1, 9 - y))
+         local is_col1 = (x == 1)
+         local is_row1_controls = (y == 1 and x >= 4 and x <= 6)
+         local is_row2 = (y == 2 and x == 1)
+         local is_snap_row = (y == 8 and x >= 2 and x <= 5)
+         local is_lfo_cols = (y >= 3 and y <= 5 and x >= 1 and x <= 2)
+         local is_looper_row = (y == 8 and x >= 7 and x <= 12)
+         local is_seq_row = (y == 8 and x >= 14 and x <= 16)
+         local is_shift = (x == 1 and y == 8)
+         if not (is_keyboard or is_col1 or is_row1_controls or is_row2 or is_snap_row or is_lfo_cols or is_looper_row or is_seq_row or is_shift) then
+            set_led(x, y, 0)
+         end
+      end
    end
    
    -- coll 1
@@ -1713,14 +1757,14 @@ function redraw_grid()
       local wave = (math.sin(frame * 0.08) + 1) / 2
       hold_brightness = 4 + math.floor(6 * wave + 0.5)
    end
-   g:led(1, 1, hold_brightness)
-   g:led(1, 2, 0)   -- freed (env loop moved to 2,1)
-   g:led(1, 3, 0)   -- unused → off
-   g:led(1, 4, 0)   -- unused → off
-   g:led(1, 5, 0)   -- unused → off
-   g:led(1, 6, 0)   -- freed from keyboard
-   g:led(1, 7, 0)   -- freed from keyboard
-   g:led(1, 8, shift_held and 14 or 4)  -- shift button
+   set_led(1, 1, hold_brightness)
+   set_led(1, 2, 0)   -- freed (env loop moved to 2,1)
+   set_led(1, 3, 0)   -- unused → off
+   set_led(1, 4, 0)   -- unused → off
+   set_led(1, 5, 0)   -- unused → off
+   set_led(1, 6, 0)   -- freed from keyboard
+   set_led(1, 7, 0)   -- freed from keyboard
+   set_led(1, 8, shift_held and 14 or 4)  -- shift button
 
    -- tonic notes at level 3, only within keyboard diagonal area (rows 1-7)
    for x = 2, 16 do
@@ -1728,7 +1772,7 @@ function redraw_grid()
           if x >= math.max(1, 9 - y) then
             local n = xy_to_note(x, y)
             if (n % 12) == scale_root then
-               g:led(x, y, 3)
+               set_led(x, y, 3)
             end
          end
       end
@@ -1736,18 +1780,18 @@ function redraw_grid()
 
    -- light up held keys (shadows removed)
    for n = 1, #playing do
-      g:led(playing[n].x, playing[n].y, 10)
+      set_led(playing[n].x, playing[n].y, 10)
    end
 
    -- pending notes blink (1↔6 fast)
    local pending_wave = (math.sin(frame * 0.20) + 1) / 2
    for _, pn in ipairs(pending_notes) do
-      g:led(pn.x, pn.y, 1 + math.floor(5 * pending_wave + 0.5))
+      set_led(pn.x, pn.y, 1 + math.floor(5 * pending_wave + 0.5))
    end
 
    -- env loop LED at (2,1): brillo 1 default, envelope brightness when active
    if Harvest.poly_loop == 0 then
-      g:led(2, 1, 1)  -- dim when off
+      set_led(2, 1, 1)  -- dim when off
    else
       -- Show envelope brightness (2-13)
       local shape = params:get("poly_shape")
@@ -1769,7 +1813,7 @@ function redraw_grid()
       else
          env_val = 1 - (t - 2 * attack - release) / release
       end
-      g:led(2, 1, 2 + math.floor(11 * env_val))
+      set_led(2, 1, 2 + math.floor(11 * env_val))
    end
    -- octave LEDs in row 1 cols 4-5-6 (linear 0..4: -2,-1,0,+1,+2)
    local oct_wave = (math.sin(frame * 0.10) + 1) / 2
@@ -1789,9 +1833,9 @@ function redraw_grid()
       oct_led_3 = 2 + math.floor(4 * oct_wave + 0.5)  -- +2: blink 6↔2
    end
 
-   g:led(4, 1, oct_led_1)
-   g:led(5, 1, oct_led_2)
-   g:led(6, 1, oct_led_3)
+   set_led(4, 1, oct_led_1)
+   set_led(5, 1, oct_led_2)
+   set_led(6, 1, oct_led_3)
 
    -- drone snapshot LEDs (row 8, cols 2-5, ncoco-style)
    for i = 1, 4 do
@@ -1801,7 +1845,7 @@ function redraw_grid()
       elseif active_drone_snap == i then b = 10
       elseif drone_snaps[i] ~= nil then b = 6
       else b = 2 end
-      g:led(x, 8, b)
+      set_led(x, 8, b)
    end
 
    -- LFO LEDs (rows 3-5: cols 1-2, 6 LFOs top-to-bottom left-to-right)
@@ -1820,11 +1864,11 @@ function redraw_grid()
             b = math.floor(util.linlin(-1, 1, 2, 12, lfo.value))
          end
       end
-      g:led(col, row, b)
+      set_led(col, row, b)
    end
 
    -- parameter looper LEDs (delegated to Loopers module)
-   Loopers.redraw_grid(g)
+   Loopers.redraw_grid_set(g, set_led)
 
    -- sequencer LEDs (row 8, cols 14-16)
    for i = 0, 2 do
@@ -1837,10 +1881,10 @@ function redraw_grid()
       elseif s.state == 3 then b = 5
       elseif s.state == 4 then b = math.floor(util.linlin(-1, 1, 5, 15, math.sin(util.time() * 15)))
       end
-      g:led(x, 8, b)
+      set_led(x, 8, b)
    end
 
-   g:refresh()
+   if changed then g:refresh() end
 end
 
 -- arc: drawing
@@ -1961,6 +2005,8 @@ end
 -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 function cleanup()
+   if clk_screen then clock.cancel(clk_screen) end
+   if clk_grid then clock.cancel(clk_grid) end
    for i = 1, 3 do
       if seq_clock_ids[i] then clock.cancel(seq_clock_ids[i]) end
    end
