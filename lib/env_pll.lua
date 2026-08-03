@@ -52,7 +52,8 @@ function EnvPLL.disable()
 end
 
 function EnvPLL.update_target(target_sec)
-   if target_sec and target_sec > 0 then
+   if target_sec and target_sec > 0 and math.abs(target_sec - EnvPLL.target_period) > 0.001 then
+      print(string.format("EnvPLL: target updated %.3fs → %.3fs", EnvPLL.target_period, target_sec))
       EnvPLL.target_period = target_sec
    end
 end
@@ -78,11 +79,9 @@ function EnvPLL.feed(env_val, note)
    end
    local sn = EnvPLL.notes[n]
 
-   -- Valley detection: envelope crosses below threshold while falling
-   local falling = env_val < sn.prev_val
-   local crossed = falling and not sn.falling and env_val < EnvPLL.threshold
+   -- Valley detection: envelope crosses threshold (prev >= threshold, current < threshold, falling)
+   local crossed = sn.prev_val >= EnvPLL.threshold and env_val < EnvPLL.threshold and env_val < sn.prev_val
    sn.prev_val = env_val
-   sn.falling = falling
 
    if crossed then
       local now = util.time()
