@@ -23,6 +23,7 @@ engine.name = "Harvest"
     Loopers = include("lib/loopers")
     LFOs = include("lib/lfos")
   EnvQuant = include("lib/env_quant")
+   EnvPLL = include("lib/env_pll")
 
 local save_on_exit = true
 
@@ -617,7 +618,7 @@ function init()
       type = "group",
       id   = "harvest",
       name = "HØST",
-      n    = 54
+      n    = 55
    }
 
    params:add_separator("kontroll", "CONTROL")
@@ -866,6 +867,7 @@ function init()
          if p then
             p.env_val = args[1] or 0
          end
+         EnvPLL.feed(args[1] or 0, args[2])  -- closed-loop envelope↔clock sync
       end
    end
 

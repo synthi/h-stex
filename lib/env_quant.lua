@@ -109,6 +109,8 @@ function EnvQuant.apply()
    engine.harvest_poly_set("max_release", mr)
    EnvQuant.last_cycle   = d_q
    EnvQuant.last_div_idx = div_idx
+   -- Update PLL target (if active) so it tracks the new division
+   if EnvPLL and EnvPLL.active then EnvPLL.update_target(d_q) end
 end
 
 -- delay sync: map fx_time normalized value to LFO division, send beats*beat_sec to engine

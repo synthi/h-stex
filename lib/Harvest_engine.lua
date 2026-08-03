@@ -367,10 +367,14 @@ function Harvest.init(midicontrol)
        name        = "Loop?",
        options     = {"No", "Yes"},
        default     = 1,
-       action      = function(x)
-          engine.harvest_poly_set("loop", x - 1)
-          Harvest.poly_loop = x - 1
-       end
+      action      = function(x)
+         engine.harvest_poly_set("loop", x - 1)
+         Harvest.poly_loop = x - 1
+         -- Loop toggle: enable/disable PLL if Env Quant is ON
+         if EnvPLL and EnvQuant.enabled() then
+            if x == 2 then EnvPLL.enable() else EnvPLL.disable() end
+         end
+      end
     }
 
 -- quant
@@ -385,7 +389,9 @@ function Harvest.init(midicontrol)
       action  = function(x)
          if x == 2 then
             EnvQuant.apply()
+            if params:get("poly_loop") == 2 then EnvPLL.enable() end
          else
+            EnvPLL.disable()
             if Harvest.max_attack then engine.harvest_poly_set("max_attack", Harvest.max_attack) end
             if Harvest.max_release then engine.harvest_poly_set("max_release", Harvest.max_release) end
          end
