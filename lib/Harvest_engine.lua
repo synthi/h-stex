@@ -155,14 +155,11 @@ function Harvest.init(midicontrol)
       id          = "poly_shape",
       name        = "Contour",
       controlspec = controlspec.new(0, 1, "lin", 0.001, 0.1),
-       action      = function(x)
-           engine.harvest_poly_set("shape", x)
-           if EnvQuant.enabled() then
-              if params:get("poly_loop") == 2 then EnvQuant.apply_sync()
-              else EnvQuant.apply() end
-           end
+      action      = function(x)
+          engine.harvest_poly_set("shape", x)
+          if EnvQuant.enabled() then EnvQuant.apply() end
 			   Harvest.poly_shape = x
-       end
+      end
    }
 
     params:add{
@@ -326,10 +323,10 @@ function Harvest.init(midicontrol)
       action      = function(x)
           local val = sigmoid_map(x)
           Harvest.max_attack = val
-          engine.harvest_poly_set("max_attack", val)
           if EnvQuant.enabled() then
-             if params:get("poly_loop") == 2 then EnvQuant.apply_sync()
-             else EnvQuant.apply() end
+             EnvQuant.apply()
+          else
+             engine.harvest_poly_set("max_attack", val)
           end
       end
    }
@@ -342,10 +339,10 @@ function Harvest.init(midicontrol)
       action      = function(x)
           local val = sigmoid_map(x)
           Harvest.max_release = val
-          engine.harvest_poly_set("max_release", val)
           if EnvQuant.enabled() then
-             if params:get("poly_loop") == 2 then EnvQuant.apply_sync()
-             else EnvQuant.apply() end
+             EnvQuant.apply()
+          else
+             engine.harvest_poly_set("max_release", val)
           end
       end
    }
@@ -360,10 +357,7 @@ function Harvest.init(midicontrol)
       end,
       action      = function(x)
           engine.harvest_poly_set("scale", x)
-          if EnvQuant.enabled() then
-             if params:get("poly_loop") == 2 then EnvQuant.apply_sync()
-             else EnvQuant.apply() end
-          end
+          if EnvQuant.enabled() then EnvQuant.apply() end
 			-- Harvest.poly_scale = x
       end
    }
@@ -376,10 +370,6 @@ function Harvest.init(midicontrol)
        action      = function(x)
           engine.harvest_poly_set("loop", x - 1)
           Harvest.poly_loop = x - 1
-          if EnvQuant.enabled() then
-             if x == 2 then EnvQuant.apply_sync()
-             else EnvQuant.apply() end
-          end
        end
     }
 
@@ -394,10 +384,8 @@ function Harvest.init(midicontrol)
       default = 1,
       action  = function(x)
          if x == 2 then
-            if params:get("poly_loop") == 2 then EnvQuant.apply_sync()
-            else EnvQuant.apply() end
+            EnvQuant.apply()
          else
-            EnvQuant.disable_sync()
             if Harvest.max_attack then engine.harvest_poly_set("max_attack", Harvest.max_attack) end
             if Harvest.max_release then engine.harvest_poly_set("max_release", Harvest.max_release) end
          end

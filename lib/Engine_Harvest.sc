@@ -1,7 +1,7 @@
 // Engine_harvest
 // a part of Høst
 //
-// v2.0 — sync redone . OSC envelope phase ground truth for grid LED sync
+// v1.8 — OSC envelope phase ground truth for grid LED sync
 // imminent gloom / Josue Arias
 
 Engine_Harvest : CroneEngine {
@@ -219,11 +219,8 @@ Engine_Harvest : CroneEngine {
          var noise_out, ringmod, noise_src, dust_amt, dust_trig, dust_env, gated;
          var wr, wr2, wr3;
          var vel, gate, loop, shape, scale, max_attack, max_release;
-         var attack, release, curve, asr, ararar, env, env_free, env_synced, env_phasor, lpg;
+         var attack, release, curve, asr, ararar, env, lpg;
          var att1, att2, att3, rel1, rel2, rel3, cur1, cur2, cur3, w1, w2, w3;
-         var env_sync_sw, cycle_sec, phase_offset, phase_trig, att_frac, env_curve;
-         var phasor, att_ph, rel_ph, att_val, rel_val;
-         var gate_off_trig, env_at_rel, rel_env;
          var note = \note.kr(60);
          // === Analog tolerances (fixed per voice) ===
          var sine_detune  = Rand(-0.001, 0.001);    // ±0.1% (2 cents)
@@ -323,40 +320,7 @@ Engine_Harvest : CroneEngine {
 
          asr    = EnvGen.kr(Env.asr(attack, 1, release, curve: curve), gate, doneAction: 2);
          ararar = EnvGen.kr(Env.new([0, 1, 0, 1, 0], [attack, release, attack, release], releaseNode: 3, loopNode: 1, curve: curve), gate, doneAction: 2);
-         env_free = LinSelectX.kr(loop.lag((release * scale).clip(0.01, release)), [asr, ararar]);
-
-         // === Sync envelope (phasor-based, clock-locked via Lua) ===
-         env_sync_sw  = \env_sync.kr(0);
-         cycle_sec    = \cycle_sec.kr(1, 0.01);
-         phase_offset = \phase_offset.kr(0);
-         phase_trig   = \phase_trig.tr(0);
-         att_frac     = \att_frac.kr(0.5, 0.01);
-         env_curve    = \env_curve.kr(0, 0.01);
-
-         phasor = Phasor.kr(phase_trig, cycle_sec.max(0.001).reciprocal, 0, 1, phase_offset);
-
-         att_ph = (phasor / att_frac.clip(0.001, 0.999)).clip(0, 1);
-         rel_ph = ((phasor - att_frac) / (1 - att_frac).clip(0.001, 0.999)).clip(0, 1);
-
-         // SC Env curve replication: (exp(c*t)-1)/(exp(c)-1), linear when c≈0
-         att_val = Select.kr(env_curve.abs < 0.001, [
-            ((env_curve * att_ph).exp - 1) / ((env_curve.exp - 1) + 0.0001),
-            att_ph
-         ]);
-         rel_val = 1 - Select.kr(env_curve.abs < 0.001, [
-            ((env_curve * rel_ph).exp - 1) / ((env_curve.exp - 1) + 0.0001),
-            rel_ph
-         ]);
-         env_phasor = Select.kr(phasor < att_frac, [rel_val, att_val]);
-
-         // Gate-off: capture phasor value, release with EnvGen
-         gate_off_trig = Trig1.kr(1 - gate, 0.001);
-         env_at_rel = Latch.kr(env_phasor, gate_off_trig);
-         rel_env = EnvGen.kr(Env([env_at_rel, 0], [release.max(0.01)], curve: curve), gate_off_trig, doneAction: 0);
-         env_synced = Select.kr(gate, [rel_env, env_phasor]);
-
-         // Final envelope: free or synced (sync only in loop mode)
-         env = LinSelectX.kr((env_sync_sw * loop).lag(0.01), [env_free, env_synced]);
+         env    = LinSelectX.kr(loop.lag((release * scale).clip(0.01, release)), [asr, ararar]);
 
          // LPG: filter closes faster than amplitude (amp²), range 210–18.5kHz
          amp_env = env * vel * amp;
@@ -428,12 +392,7 @@ Engine_Harvest : CroneEngine {
                 \max_release, harvestParameters.at("max_release"),
                 \scale, harvestParameters.at("scale"),
                 \drift, harvestParameters.at("drift"),
-                \pan, pan,
-                \env_sync, harvestParameters.at("env_sync") ? 0,
-                \cycle_sec, harvestParameters.at("cycle_sec") ? 1,
-                \att_frac, harvestParameters.at("att_frac") ? 0.5,
-                \env_curve, harvestParameters.at("env_curve") ? 0,
-                \phase_offset, harvestParameters.at("next_phase") ? 0
+                \pan, pan
              ]);
           );
          NodeWatcher.register(harvestVoices.at(note));
@@ -591,22 +550,6 @@ Engine_Harvest : CroneEngine {
                });
             }
          );
-      });
-
-      // Set phase_offset on a specific voice (re-sync on division change)
-      this.addCommand("harvest_poly_phase", "if", { arg msg;
-         var note = msg[1];
-         var phase = msg[2];
-         if (harvestVoices.at(note) != nil, {
-            if (harvestVoices.at(note).isRunning == true, {
-               harvestVoices.at(note).set(\phase_offset, phase, \phase_trig, 1);
-            });
-         });
-      });
-
-      // Set phase_offset for the next voice to be created
-      this.addCommand("harvest_next_phase", "f", { arg msg;
-         harvestParameters.put("next_phase", msg[1]);
       });
 
       // Forward SendReply messages from scsynth to norns Lua (matron port 10111)
