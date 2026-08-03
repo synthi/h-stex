@@ -318,7 +318,13 @@ local function play_note(x, y, z, note, seq_note)
          end
          table.remove(playing, 1)
       end
-      local entry = {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time(), seq_note = seq_note or false, env_val = 0}
+      local trigger_beat = clock.get_beats()
+      local phase_pct = 0
+      if EnvQuant.enabled() and params:get("poly_loop") == 2 then
+         phase_pct = EnvQuant.compute_phase_pct(trigger_beat)
+         engine.harvest_next_phase(phase_pct)
+      end
+      local entry = {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time(), seq_note = seq_note or false, env_val = 0, trigger_beat = trigger_beat, phase_pct = phase_pct}
       table.insert(playing, entry)
       note_to_playing[note + transpose] = entry
       engine.harvest_note_on(note + transpose, velocity, duration)
@@ -364,7 +370,13 @@ local function play_note(x, y, z, note, seq_note)
             end
             table.remove(playing, 1)
          end
-         local entry = {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time(), env_val = 0}
+         local trigger_beat = clock.get_beats()
+         local phase_pct = 0
+         if EnvQuant.enabled() and params:get("poly_loop") == 2 then
+            phase_pct = EnvQuant.compute_phase_pct(trigger_beat)
+            engine.harvest_next_phase(phase_pct)
+         end
+         local entry = {note = note, transpose = transpose, x = x, y = y, held = false, timestamp = util.time(), env_val = 0, trigger_beat = trigger_beat, phase_pct = phase_pct}
          table.insert(playing, entry)
          note_to_playing[note + transpose] = entry
          engine.harvest_note_on(note + transpose, velocity, duration)
@@ -607,17 +619,32 @@ function init()
          local bs = clock.get_beat_sec()
          if math.abs(bs - last_bs) > 0.0001 then
             last_bs = bs
-            if EnvQuant.enabled() then EnvQuant.apply() end
+            if EnvQuant.enabled() then
+               if params:get("poly_loop") == 2 then EnvQuant.apply_sync()
+               else EnvQuant.apply() end
+            end
             if params:get("delay_sync") == 2 then EnvQuant.apply_delay_sync() end
          end
       end
    end)
 
+   -- Re-sync all playing voices to current clock phase (called after apply_sync)
+   EnvQuant.on_sync_applied = function()
+      if not EnvQuant.enabled() or params:get("poly_loop") ~= 2 then return end
+      for _, v in ipairs(playing) do
+         if v.trigger_beat then
+            local phase_pct = EnvQuant.compute_phase_pct(v.trigger_beat)
+            v.phase_pct = phase_pct
+            engine.harvest_poly_phase(v.note + v.transpose, phase_pct)
+         end
+      end
+   end
+
    params:add{
       type = "group",
       id   = "harvest",
       name = "HØST",
-      n    = 54
+      n    = 55
    }
 
    params:add_separator("kontroll", "CONTROL")
