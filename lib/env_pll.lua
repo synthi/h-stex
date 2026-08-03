@@ -1,6 +1,6 @@
 -- lib/env_pll.lua
 -- Phase-Locked Loop for envelope↔clock sync (closed-loop correction)
--- v1.0 for h-stex
+-- v1.1 for h-stex
 --
 -- Architecture: measures real envelope period via OSC feedback (/harvest_env @ 30Hz),
 -- detects cycle valleys, compares against target period from EnvQuant,
@@ -20,7 +20,7 @@ EnvPLL.gain         = 0.08      -- correction gain (low = smooth, no overshoot)
 EnvPLL.threshold    = 0.06      -- valley detection threshold (envelope minimum)
 
 -- per-note state
-EnvPLL.notes = {}               -- [note] = {last_valley_time, prev_valley_time, tracking, ...}
+EnvPLL.notes = {}               -- [note] = {prev_val, valley_1ago, valley_2ago, ...}
 
 ----------------------------------------------------------------------
 -- Public API
@@ -37,6 +37,8 @@ function EnvPLL.enable()
    EnvPLL._last_correction = util.time()
    -- Save quantized baseline (not raw slider value) for PLL corrections
    EnvPLL._original_max_release = EnvQuant.last_mr_corrected or Harvest.max_release
+   -- PLL's own corrected mr (accumulates corrections cycle to cycle)
+   EnvPLL.corrected_mr = EnvPLL._original_max_release
    print("EnvPLL: enabled, target=" .. string.format("%.3f", EnvPLL.target_period) .. "s")
 end
 
@@ -50,12 +52,19 @@ function EnvPLL.disable()
    end
    EnvPLL.notes = {}
    EnvPLL._original_max_release = nil
+   EnvPLL.corrected_mr = nil
 end
 
 function EnvPLL.update_target(target_sec)
    if target_sec and target_sec > 0 and math.abs(target_sec - EnvPLL.target_period) > 0.001 then
       print(string.format("EnvPLL: target updated %.3fs → %.3fs", EnvPLL.target_period, target_sec))
       EnvPLL.target_period = target_sec
+      -- Reset valley history (new target = new cycle structure)
+      EnvPLL.notes = {}
+      -- Reset corrected_mr to new quantized baseline
+      EnvPLL.corrected_mr = EnvQuant.last_mr_corrected or EnvPLL.corrected_mr
+      EnvPLL._original_max_release = EnvQuant.last_mr_corrected or EnvPLL._original_max_release
+      EnvPLL._last_correction = util.time()
    end
 end
 
@@ -72,10 +81,8 @@ function EnvPLL.feed(env_val, note)
    if not EnvPLL.notes[n] then
       EnvPLL.notes[n] = {
          prev_val    = 0,
-         falling     = false,
-         valley_time = nil,
-         last_valley = nil,
-         period      = nil,
+         valley_1ago = nil,  -- time of previous valley
+         valley_2ago = nil,  -- time of valley before that
       }
    end
    local sn = EnvPLL.notes[n]
@@ -86,15 +93,15 @@ function EnvPLL.feed(env_val, note)
 
    if crossed then
       local now = util.time()
-      if sn.valley_time then
-         sn.last_valley = sn.valley_time
-      end
-      sn.valley_time = now
+      -- Shift history: 1ago → 2ago, now → 1ago
+      sn.valley_2ago = sn.valley_1ago
+      sn.valley_1ago = now
 
-      -- Measure period between last two valleys
-      if sn.last_valley then
-         sn.period = sn.valley_time - sn.last_valley
-         EnvPLL._correct(sn.period)
+      -- Measure full cycle: 2 valley-to-valley intervals = 2r+a
+      -- (valleys alternate r, a+r — any 2 consecutive = full cycle)
+      if sn.valley_2ago then
+         local period = now - sn.valley_2ago
+         EnvPLL._correct(period)
       end
    end
 end
@@ -108,21 +115,18 @@ function EnvPLL._correct(measured_period)
    local target = EnvPLL.target_period
    local error = (measured_period - target) / target
 
-   -- Ignore spurious measurements (e.g. noise triggering false valleys)
-   if math.abs(error) > 0.5 then return end  -- >50% error = glitch, skip
+   -- Ignore spurious measurements
+   if measured_period < 0.05 then return end  -- too short = noise
+   if math.abs(error) > 0.3 then return end   -- >30% error = glitch, skip
 
    -- Rate-limit: max one correction per 200ms to avoid oscillation
    local now = util.time()
    if now - EnvPLL._last_correction < 0.2 then return end
    EnvPLL._last_correction = now
 
-    -- Save original on first correction (use quantized value, not raw slider)
-    if not EnvPLL._original_max_release then
-       EnvPLL._original_max_release = EnvQuant.last_mr_corrected or Harvest.max_release
-    end
-
-    local mr = EnvQuant.last_mr_corrected or Harvest.max_release
-    local new_mr = mr * (1 - EnvPLL.gain * error)
+   -- Use PLL's own corrected value (accumulates corrections)
+   local mr = EnvPLL.corrected_mr or EnvQuant.last_mr_corrected or Harvest.max_release
+   local new_mr = mr * (1 - EnvPLL.gain * error)
 
    -- Clamp: don't let it stray more than ±30% from original
    if EnvPLL._original_max_release and EnvPLL._original_max_release > 0 then
@@ -132,7 +136,9 @@ function EnvPLL._correct(measured_period)
    end
    new_mr = util.clamp(new_mr, 0.001, 24)
 
-   Harvest.max_release = new_mr
+   -- Save corrected value for next cycle (accumulates)
+   EnvPLL.corrected_mr = new_mr
+   -- Only send to engine — don't contaminate Harvest.max_release (raw slider)
    engine.harvest_poly_set("max_release", new_mr)
 
    if math.abs(error) > 0.005 then  -- only log significant corrections (>0.5%)
