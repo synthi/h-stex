@@ -310,8 +310,8 @@ Engine_Harvest : CroneEngine {
          gate =    \gate.kr(1.0);
          loop =     \loop.kr(0);
          shape =     \shape.kr(0.1, 0.1);
-         max_attack = \max_attack.kr(1, 0.1);
-         max_release = \max_release.kr(3, 0.1);
+         max_attack = \max_attack.kr(1, 0.01);
+         max_release = \max_release.kr(3, 0.01);
          scale = \scale.kr(1, 0.1);
 
          // Original 4-zone LinSelectX contour (restored)
@@ -320,7 +320,7 @@ Engine_Harvest : CroneEngine {
          curve   =  LinSelectX.kr(shape * 3, [-2, -0.5, 0, 0]);
 
          asr    = EnvGen.kr(Env.asr(attack, 1, release, curve: curve), gate, doneAction: 2);
-         ararar = EnvGen.kr(Env.new([0, 1, 0, 1, 0], [attack, release, attack, release], releaseNode: 3, loopNode: 1, curve: curve), gate, doneAction: 2);
+         ararar = EnvGen.kr(Env.new([0, 1, 0], [attack, release], releaseNode: 1, loopNode: 0, curve: curve), gate, doneAction: 2);
          env    = LinSelectX.kr(loop.lag((release * scale).clip(0.01, release)), [asr, ararar]);
 
          // LPG: filter closes faster than amplitude (amp²), range 210–18.5kHz

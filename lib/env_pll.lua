@@ -1,17 +1,18 @@
 -- lib/env_pll.lua
 -- Phase-Locked Loop for envelope↔clock sync (closed-loop correction)
--- v1.2 for h-stex
+-- v1.3 for h-stex
 --
--- v1.2: Rich telemetry (timestamps, watchdog, env levels), SC per-valley support,
---        gain 0.3, no valley reset on target change, feed_valley() from SC
--- v1.1: 2-valley measurement (full cycle), corrected_mr accumulation, glitch guard
+-- v1.3: AR loop (1 valley/cycle), dead zone 0.1%, jitter reduction (3-sample avg), 2-decimal telemetry
+-- v1.2: Rich telemetry, SC per-valley support, gain 0.3, no valley reset on target change
+-- v1.1: 2-valley measurement, corrected_mr accumulation, glitch guard
 -- v1.0: Initial PLL with valley detection from 30Hz OSC feed
 
 EnvPLL = {}
 
 EnvPLL.active       = false
-EnvPLL.gain         = 0.3       -- correction gain (higher = faster convergence)
+EnvPLL.gain         = 0.3       -- correction gain
 EnvPLL.threshold    = 0.06      -- valley detection threshold
+EnvPLL.dead_zone    = 0.001     -- don't correct if |error| < 0.1%
 
 -- per-note state
 EnvPLL.notes = {}
@@ -20,7 +21,11 @@ EnvPLL.notes = {}
 EnvPLL._osc_count = 0
 EnvPLL._last_osc_time = 0
 EnvPLL._last_valley_time = 0
-EnvPLL._sc_valley_mode = false  -- true when /harvest_valley messages arrive from SC
+EnvPLL._sc_valley_mode = false
+
+-- jitter reduction: rolling average of last 3 period measurements
+EnvPLL._period_history = {}  -- {last 3 measured periods}
+EnvPLL._period_avg = nil     -- averaged period
 
 ----------------------------------------------------------------------
 -- Public API
@@ -32,6 +37,8 @@ function EnvPLL.enable()
    EnvPLL.notes = {}
    EnvPLL._osc_count = 0
    EnvPLL._sc_valley_mode = false
+   EnvPLL._period_history = {}
+   EnvPLL._period_avg = nil
    EnvPLL.target_period = EnvQuant.last_cycle
    if not EnvPLL.target_period or EnvPLL.target_period <= 0 then
       EnvPLL.target_period = 2.0
@@ -56,6 +63,8 @@ function EnvPLL.disable()
    EnvPLL.notes = {}
    EnvPLL._original_max_release = nil
    EnvPLL.corrected_mr = nil
+   EnvPLL._period_history = {}
+   EnvPLL._period_avg = nil
 end
 
 function EnvPLL.update_target(target_sec)
@@ -66,6 +75,9 @@ function EnvPLL.update_target(target_sec)
       EnvPLL.corrected_mr = EnvQuant.last_mr_corrected or EnvPLL.corrected_mr
       EnvPLL._original_max_release = EnvQuant.last_mr_corrected or EnvPLL._original_max_release
       EnvPLL._last_correction = util.time()
+      -- Reset jitter history (new target = new cycle structure)
+      EnvPLL._period_history = {}
+      EnvPLL._period_avg = nil
       print(string.format("EnvPLL: target t=%.3f %.3fs→%.3fs mr_baseline=%.4f",
          util.time(), old, target_sec, EnvPLL.corrected_mr))
    end
@@ -103,8 +115,6 @@ function EnvPLL.feed(env_val, note)
       EnvPLL.notes[n] = {
          prev_val    = 0,
          valley_1ago = nil,
-         valley_2ago = nil,
-         valley_3ago = nil,
          valley_count = 0,
       }
    end
@@ -130,15 +140,13 @@ function EnvPLL.feed_valley(env_val, note)
    if not note then return end
 
    local now = util.time()
-   EnvPLL._sc_valley_mode = true  -- switch to precise mode (disable 30Hz valley detection)
+   EnvPLL._sc_valley_mode = true
 
    local n = note
    if not EnvPLL.notes[n] then
       EnvPLL.notes[n] = {
          prev_val    = 0,
          valley_1ago = nil,
-         valley_2ago = nil,
-         valley_3ago = nil,
          valley_count = 0,
       }
    end
@@ -158,9 +166,11 @@ function EnvPLL._process_valley(note, now, env_val, prev_val)
    sn.valley_count = (sn.valley_count or 0) + 1
    EnvPLL._last_valley_time = now
 
-   -- Shift history: 2ago → 3ago, 1ago → 2ago, now → 1ago
-   sn.valley_3ago = sn.valley_2ago
-   sn.valley_2ago = sn.valley_1ago
+   -- Measure 1 interval: now - valley_1ago (AR loop = 1 valley per cycle)
+   local period = nil
+   if sn.valley_1ago then
+      period = now - sn.valley_1ago
+   end
    sn.valley_1ago = now
 
    -- Log every valley with full debug info
@@ -172,23 +182,19 @@ function EnvPLL._process_valley(note, now, env_val, prev_val)
          now, note, sn.valley_count))
    end
 
-   -- Measure full cycle: 2 valley-to-valley intervals = 2r+a
-   -- (valleys alternate r, a+r — any 2 consecutive = full cycle)
-   -- valley_3ago is 2 valleys ago, so now - valley_3ago = 2 intervals = full cycle
-   if sn.valley_3ago then
-      local period = now - sn.valley_3ago
+   -- Correct if we have a valid period
+   if period and period > 0 then
       EnvPLL._correct(period)
    end
 end
 
 ----------------------------------------------------------------------
--- Internal: proportional correction
+-- Internal: proportional correction with jitter reduction and dead zone
 ----------------------------------------------------------------------
 
 function EnvPLL._correct(measured_period)
    if measured_period <= 0 then return end
    local target = EnvPLL.target_period
-   local error = (measured_period - target) / target
    local now = util.time()
 
    -- Ignore spurious measurements
@@ -196,9 +202,30 @@ function EnvPLL._correct(measured_period)
       print(string.format("EnvPLL: skip t=%.3f period=%.3f reason=too_short", now, measured_period))
       return
    end
+
+   -- Jitter reduction: rolling average of last 3 measurements
+   table.insert(EnvPLL._period_history, measured_period)
+   if #EnvPLL._period_history > 3 then
+      table.remove(EnvPLL._period_history, 1)
+   end
+   local sum = 0
+   for _, v in ipairs(EnvPLL._period_history) do sum = sum + v end
+   local avg_period = sum / #EnvPLL._period_history
+
+   local error = (avg_period - target) / target
+
+   -- Glitch guard: skip if error > 30%
    if math.abs(error) > 0.3 then
-      print(string.format("EnvPLL: skip t=%.3f period=%.3f target=%.3f error=%+.1f%% reason=glitch_guard",
-         now, measured_period, target, error * 100))
+      print(string.format("EnvPLL: skip t=%.3f avg=%.3f target=%.3f error=%+.2f%% reason=glitch_guard",
+         now, avg_period, target, error * 100))
+      return
+   end
+
+   -- Dead zone: don't correct if |error| < 0.1%
+   if math.abs(error) < EnvPLL.dead_zone then
+      -- Still log for telemetry
+      print(string.format("EnvPLL: stable t=%.3f avg=%.3f target=%.3f error=%+.2f%% mr=%.4f",
+         now, avg_period, target, error * 100, EnvPLL.corrected_mr or 0))
       return
    end
 
@@ -228,8 +255,8 @@ function EnvPLL._correct(measured_period)
    -- Only send to engine — don't contaminate Harvest.max_release
    engine.harvest_poly_set("max_release", new_mr)
 
-   print(string.format("EnvPLL: correct t=%.3f period=%.3f target=%.3f error=%+.1f%% mr=%.4f→%.4f accum=%.4f",
-      now, measured_period, target, error * 100, mr, new_mr, EnvPLL.corrected_mr))
+   print(string.format("EnvPLL: correct t=%.3f avg=%.3f target=%.3f error=%+.2f%% mr=%.4f→%.4f accum=%.4f",
+      now, avg_period, target, error * 100, mr, new_mr, EnvPLL.corrected_mr))
 end
 
 return EnvPLL
