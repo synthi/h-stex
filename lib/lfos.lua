@@ -102,16 +102,16 @@ function LFOs._tick(id, delta)
    local lfo = LFOs.data[id]
    if not lfo then return end
 
-   -- If synced, recalculate freq from clock tempo
+   -- If synced, compute phase directly from clock beats (drift-free)
    if lfo.sync then
-      local beat_sec = clock.get_beat_sec()
       local beats = LFOs.sync_beats[lfo.sync_div] or 4
-      lfo.freq = 1 / (beats * beat_sec)
+      lfo.freq = 1 / (beats * clock.get_beat_sec())
+      lfo.phase = 2 * math.pi * (clock.get_beats() % beats) / beats
+   else
+      -- Free-running: advance phase using real delta time
+      lfo.phase = lfo.phase + (2 * math.pi * lfo.freq * delta)
+      if lfo.phase > 2 * math.pi then lfo.phase = lfo.phase - 2 * math.pi end
    end
-
-   -- Advance phase using real delta time
-   lfo.phase = lfo.phase + (2 * math.pi * lfo.freq * delta)
-   if lfo.phase > 2 * math.pi then lfo.phase = lfo.phase - 2 * math.pi end
 
    local phase_norm = lfo.phase / (2 * math.pi)
    local det_wave = calc_wave(phase_norm, lfo.shape)
