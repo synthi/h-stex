@@ -104,6 +104,7 @@ function EnvPLL.feed(env_val, note)
          prev_val    = 0,
          valley_1ago = nil,
          valley_2ago = nil,
+         valley_3ago = nil,
          valley_count = 0,
       }
    end
@@ -137,6 +138,7 @@ function EnvPLL.feed_valley(env_val, note)
          prev_val    = 0,
          valley_1ago = nil,
          valley_2ago = nil,
+         valley_3ago = nil,
          valley_count = 0,
       }
    end
@@ -156,7 +158,8 @@ function EnvPLL._process_valley(note, now, env_val, prev_val)
    sn.valley_count = (sn.valley_count or 0) + 1
    EnvPLL._last_valley_time = now
 
-   -- Shift history: 1ago → 2ago, now → 1ago
+   -- Shift history: 2ago → 3ago, 1ago → 2ago, now → 1ago
+   sn.valley_3ago = sn.valley_2ago
    sn.valley_2ago = sn.valley_1ago
    sn.valley_1ago = now
 
@@ -171,8 +174,9 @@ function EnvPLL._process_valley(note, now, env_val, prev_val)
 
    -- Measure full cycle: 2 valley-to-valley intervals = 2r+a
    -- (valleys alternate r, a+r — any 2 consecutive = full cycle)
-   if sn.valley_2ago then
-      local period = now - sn.valley_2ago
+   -- valley_3ago is 2 valleys ago, so now - valley_3ago = 2 intervals = full cycle
+   if sn.valley_3ago then
+      local period = now - sn.valley_3ago
       EnvPLL._correct(period)
    end
 end
