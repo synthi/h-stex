@@ -1,7 +1,11 @@
 # Commits Revertidos — h-stex
 
-Este documento documenta los 3 commits que fueron revertidos de GitHub (push forzado a `e8cb062`).
+Este documento documenta los commits que fueron revertidos del proyecto.
 Sirve como referencia para reimplementar estos cambios de forma controlada si es necesario.
+
+## Reversiones destructivas (push forzado)
+
+Los primeros 3 commits fueron revertidos de GitHub con push forzado a `e8cb062`.
 
 **Fecha de reversión:** 2026-08-02
 **Commit base actual:** `e8cb062` (feat(delay): sync de delay + modo ON/OFF para cuantización de envolvente)
@@ -455,3 +459,51 @@ params:add{
 | Overflow liberaba nota activa en vez de release | `f0a475a` | `efae647` |
 | CPU alta al cambiar de script | `f0a475a` (notas congeladas) | `efae647` |
 | Display E3 scale mostraba división | `e8cb062` (delay sync) | `efae647` |
+
+---
+
+## Reversión no destructiva: `aa52efc` — sync de LFOs y envelopes (phasor-based)
+
+**Hash del commit revertido:** `aa52efc745f0ff9db83c492393852cc05200daa0`
+**Fecha del commit:** 2026-08-02
+**Autor:** Kymatika
+
+### Propósito
+Implementar sync perfecto al reloj para LFOs y envelopes usando:
+- LFO: `clock.get_beats()` en Lua (sin drift acumulado)
+- Envelope: `Phasor.kr` en SC con tracking de fase en Lua como % del ciclo
+
+### Resultado en dispositivo: **FALLO TOTAL**
+El usuario reportó:
+- Notas colgadas eternas
+- Sin display de envelope en la grid (ni sync ni free mode)
+- Sync no funciona
+- Free mode roto también
+
+### Causas probables
+1. `\phase_trig.tr(0)` — sintaxis cuestionable en el SynthDef (`harvestpoly`) que pudo fallar la compilación completa, rompiendo TODAS las voces (sync Y free).
+2. Release del envelope sync usa `doneAction: 0` — las notas sync nunca liberan su voz (notas colgadas).
+3. El cambio en la señal `env` (crossfade `env_free`) pudo romper el `SendReply` del display de envelopes.
+
+### Cambios revertidos
+Se revirtieron 5 archivos (187 inserciones/27 borrados en el revert):
+
+| Archivo | Cambio |
+|---------|--------|
+| `h-stex.lua` | Phase tracking (trigger_beat, phase_pct), tempo monitor, resync callbacks |
+| `lib/Engine_Harvest.sc` | SynthDef `\harvestpoly` con phasor sync + comandos nuevos |
+| `lib/Harvest_engine.lua` | Params enrutan a `apply_sync` vs `apply` según loop mode |
+| `lib/env_quant.lua` | `apply_sync()`, `compute_phase_pct()`, `get_div_beats()`, callbacks |
+| `lib/lfos.lua` | LFO phase con `clock.get_beats()` cuando sync=true |
+
+### Cómo se revirtió
+**Método:** `git revert aa52efc` (commit `a934742`)
+**Resultado:** El árbol de trabajo es 100% idéntico a `a0ae523` (verificado con `git diff a0ae523 HEAD` = vacío).
+**Historial:** El commit `aa52efc` permanece intacto en el historial de GitHub. Este revert es NO destructivo — no hubo force push.
+**Estado actual:** `a0ae523` (16n linearizado) + `a934742` (revert del sync) = versión funcional.
+
+### Lecciones aprendidas
+- Los cambios de sync deben hacerse en commits pequeños e incrementales, probando en el dispositivo entre cada uno.
+- **Nunca** cambiar el SynthDef completo de `\harvestpoly` en un solo paso — si falla la compilación, rompe todo el motor.
+- El display de envelopes de la grid depende de la señal `env` del `SendReply` — cualquier cambio en esa ruta debe verificarse primero en free mode.
+- El release path del envelope sync necesita `doneAction: 2` (o manejo explícito de liberación) para no colgar voces.
