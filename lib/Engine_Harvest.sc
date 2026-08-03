@@ -320,7 +320,7 @@ Engine_Harvest : CroneEngine {
          curve   =  LinSelectX.kr(shape * 3, [-2, -0.5, 0, 0]);
 
          asr    = EnvGen.kr(Env.asr(attack, 1, release, curve: curve), gate, doneAction: 2);
-         ararar = EnvGen.kr(Env.new([0, 1, 0], [attack, release], releaseNode: 1, loopNode: 0, curve: curve), gate, doneAction: 2);
+         ararar = EnvGen.kr(Env.new([0, 1, 0, 0], [attack, release, 0.01], releaseNode: 2, loopNode: 0, curve: curve), gate, doneAction: 2);
          env    = LinSelectX.kr(loop.lag((release * scale).clip(0.01, release)), [asr, ararar]);
 
          // LPG: filter closes faster than amplitude (amp²), range 210–18.5kHz
