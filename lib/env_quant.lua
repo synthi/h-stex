@@ -81,9 +81,12 @@ function EnvQuant.apply()
    local max_a     = Harvest.max_attack or 0.197
    local max_r     = Harvest.max_release or 1
    local beat_sec  = clock.get_beat_sec()
+   local is_loop   = (params:get("poly_loop") == 2)  -- loop=true means ararar
 
    local a, r = calc_ar(shape, max_a, max_r, scale_val)
-   local d_nat = a + r
+   -- ararar loop cycle = release + attack + release = 2r + a
+   -- (loopNode:1 skips the initial attack on repeat)
+   local d_nat = is_loop and (2 * r + a) or (a + r)
    if d_nat <= 0 then return end
 
    local div_idx = nearest_division(d_nat / beat_sec, beat_sec)
@@ -97,7 +100,7 @@ function EnvQuant.apply()
       ma = util.clamp(max_a * k, 0.001, 24)
       mr = util.clamp(max_r * k, 0.001, 24)
       local a2, r2 = calc_ar(shape, ma, mr, scale_val)
-      local d2 = a2 + r2
+      local d2 = is_loop and (2 * r2 + a2) or (a2 + r2)
       if d2 <= 0 or math.abs(d2 - d_q) / d_q < 0.001 then break end
       k = k * (d_q / d2)
    end
