@@ -221,6 +221,7 @@ Engine_Harvest : CroneEngine {
          var vel, gate, loop, shape, scale, max_attack, max_release;
          var attack, release, curve, asr, ararar, env, lpg;
          var att1, att2, att3, rel1, rel2, rel3, cur1, cur2, cur3, w1, w2, w3;
+         var valley_below, valley_trig;
          var note = \note.kr(60);
          // === Analog tolerances (fixed per voice) ===
          var sine_detune  = Rand(-0.001, 0.001);    // ±0.1% (2 cents)
@@ -328,6 +329,10 @@ Engine_Harvest : CroneEngine {
          lpg = LPF.ar(min, filter_env.linexp(0, 1, 210, 18500) * [lpg_L_var + thermal, lpg_R_var + thermal], amp_env * voice_gain);
 
           SendReply.kr(Impulse.kr(30), '/harvest_env', [env, note]);
+          // Per-valley trigger for PLL: fires only when env crosses below threshold
+          valley_below = (env < 0.06);
+          valley_trig = Trig1.kr(valley_below - Delay1.kr(valley_below), 0.01);
+          SendReply.kr(valley_trig, '/harvest_valley', [env, note]);
           Out.ar(\out.ir(0), Pan2.ar(lpg * [bal_L_var, bal_R_var], \pan.kr(0)) * 0.25);
        }).add;
 
@@ -557,10 +562,15 @@ Engine_Harvest : CroneEngine {
       OSCdef(\harvest_env_fwd, { |msg|
          NetAddr("127.0.0.1", 10111).sendMsg('/harvest_env', msg[3], msg[4]);
       }, '/harvest_env');
+      // Forward per-valley messages to norns Lua (matron port 10111)
+      OSCdef(\harvest_valley_fwd, { |msg|
+         NetAddr("127.0.0.1", 10111).sendMsg('/harvest_valley', msg[3], msg[4]);
+      }, '/harvest_valley');
    }
 
    free {
       OSCdef(\harvest_env_fwd).free;
+      OSCdef(\harvest_valley_fwd).free;
       harvestBus.free;
       harvestFx.free;
       harvestDrone.free;

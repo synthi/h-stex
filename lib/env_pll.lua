@@ -1,26 +1,26 @@
 -- lib/env_pll.lua
 -- Phase-Locked Loop for envelope↔clock sync (closed-loop correction)
--- v1.1 for h-stex
+-- v1.2 for h-stex
 --
--- Architecture: measures real envelope period via OSC feedback (/harvest_env @ 30Hz),
--- detects cycle valleys, compares against target period from EnvQuant,
--- and nudges max_release proportionally each cycle to eliminate drift.
---
--- This is the same principle as the LFO sync fix (clock.get_beats()):
---   LFO:    re-anchors phase to clock every frame (8ms)      → zero drift
---   EnvPLL: re-anchors period to clock every envelope cycle  → near-zero drift
---
--- Without this loop, the SC EnvGen runs on the audio hardware's sample clock
--- which drifts ~1% vs the system clock on real hardware (Piano Phase effect).
+-- v1.2: Rich telemetry (timestamps, watchdog, env levels), SC per-valley support,
+--        gain 0.3, no valley reset on target change, feed_valley() from SC
+-- v1.1: 2-valley measurement (full cycle), corrected_mr accumulation, glitch guard
+-- v1.0: Initial PLL with valley detection from 30Hz OSC feed
 
 EnvPLL = {}
 
-EnvPLL.active       = false     -- enabled only when poly_quant=ON + loop=ON
-EnvPLL.gain         = 0.08      -- correction gain (low = smooth, no overshoot)
-EnvPLL.threshold    = 0.06      -- valley detection threshold (envelope minimum)
+EnvPLL.active       = false
+EnvPLL.gain         = 0.3       -- correction gain (higher = faster convergence)
+EnvPLL.threshold    = 0.06      -- valley detection threshold
 
 -- per-note state
-EnvPLL.notes = {}               -- [note] = {prev_val, valley_1ago, valley_2ago, ...}
+EnvPLL.notes = {}
+
+-- telemetry state
+EnvPLL._osc_count = 0
+EnvPLL._last_osc_time = 0
+EnvPLL._last_valley_time = 0
+EnvPLL._sc_valley_mode = false  -- true when /harvest_valley messages arrive from SC
 
 ----------------------------------------------------------------------
 -- Public API
@@ -30,25 +30,28 @@ function EnvPLL.enable()
    if EnvPLL.active then return end
    EnvPLL.active = true
    EnvPLL.notes = {}
-   EnvPLL.target_period = EnvQuant.last_cycle  -- seconds (from apply())
+   EnvPLL._osc_count = 0
+   EnvPLL._sc_valley_mode = false
+   EnvPLL.target_period = EnvQuant.last_cycle
    if not EnvPLL.target_period or EnvPLL.target_period <= 0 then
-      EnvPLL.target_period = 2.0  -- safe default
+      EnvPLL.target_period = 2.0
    end
    EnvPLL._last_correction = util.time()
-   -- Save quantized baseline (not raw slider value) for PLL corrections
+   EnvPLL._last_osc_time = util.time()
+   EnvPLL._last_valley_time = util.time()
    EnvPLL._original_max_release = EnvQuant.last_mr_corrected or Harvest.max_release
-   -- PLL's own corrected mr (accumulates corrections cycle to cycle)
    EnvPLL.corrected_mr = EnvPLL._original_max_release
-   print("EnvPLL: enabled, target=" .. string.format("%.3f", EnvPLL.target_period) .. "s")
+   print(string.format("EnvPLL: enabled t=%.3f target=%.3fs mr_baseline=%.4f",
+      util.time(), EnvPLL.target_period, EnvPLL._original_max_release))
 end
 
 function EnvPLL.disable()
    if not EnvPLL.active then return end
    EnvPLL.active = false
-   -- restore quantized max_release
    if EnvPLL._original_max_release then
       engine.harvest_poly_set("max_release", EnvPLL._original_max_release)
-      print("EnvPLL: disabled, max_release restored to " .. string.format("%.3f", EnvPLL._original_max_release))
+      print(string.format("EnvPLL: disabled t=%.3f restored mr=%.4f",
+         util.time(), EnvPLL._original_max_release))
    end
    EnvPLL.notes = {}
    EnvPLL._original_max_release = nil
@@ -57,52 +60,120 @@ end
 
 function EnvPLL.update_target(target_sec)
    if target_sec and target_sec > 0 and math.abs(target_sec - EnvPLL.target_period) > 0.001 then
-      print(string.format("EnvPLL: target updated %.3fs → %.3fs", EnvPLL.target_period, target_sec))
+      local old = EnvPLL.target_period
       EnvPLL.target_period = target_sec
-      -- Reset valley history (new target = new cycle structure)
-      EnvPLL.notes = {}
-      -- Reset corrected_mr to new quantized baseline
+      -- DON'T reset valley history — just reset baseline and rate limiter
       EnvPLL.corrected_mr = EnvQuant.last_mr_corrected or EnvPLL.corrected_mr
       EnvPLL._original_max_release = EnvQuant.last_mr_corrected or EnvPLL._original_max_release
       EnvPLL._last_correction = util.time()
+      print(string.format("EnvPLL: target t=%.3f %.3fs→%.3fs mr_baseline=%.4f",
+         util.time(), old, target_sec, EnvPLL.corrected_mr))
    end
 end
 
 ----------------------------------------------------------------------
 -- Feed: called at 30Hz from osc.event /harvest_env handler
+-- Used for grid LED sync + fallback valley detection (if SC doesn't send /harvest_valley)
 ----------------------------------------------------------------------
 
 function EnvPLL.feed(env_val, note)
    if not EnvPLL.active then return end
    if not note then return end
+
+   local now = util.time()
+   EnvPLL._osc_count = EnvPLL._osc_count + 1
+   EnvPLL._last_osc_time = now
+
+   -- Watchdog: every ~1s (30 messages at 30Hz), check for stale feed
+   if EnvPLL._osc_count % 30 == 0 then
+      local since_valley = now - EnvPLL._last_valley_time
+      if since_valley > 3 then
+         print(string.format("EnvPLL: watchdog t=%.3f no_valley=%.1fs osc_count=%d",
+            now, since_valley, EnvPLL._osc_count))
+      end
+   end
+
+   -- If SC sends /harvest_valley, skip valley detection here (precise mode)
+   if EnvPLL._sc_valley_mode then return end
+
    if not EnvPLL.target_period or EnvPLL.target_period <= 0 then return end
 
    local n = note
    if not EnvPLL.notes[n] then
       EnvPLL.notes[n] = {
          prev_val    = 0,
-         valley_1ago = nil,  -- time of previous valley
-         valley_2ago = nil,  -- time of valley before that
+         valley_1ago = nil,
+         valley_2ago = nil,
+         valley_count = 0,
       }
    end
    local sn = EnvPLL.notes[n]
 
    -- Valley detection: envelope crosses threshold (prev >= threshold, current < threshold, falling)
-   local crossed = sn.prev_val >= EnvPLL.threshold and env_val < EnvPLL.threshold and env_val < sn.prev_val
+   local prev = sn.prev_val
+   local crossed = prev >= EnvPLL.threshold and env_val < EnvPLL.threshold and env_val < prev
    sn.prev_val = env_val
 
    if crossed then
-      local now = util.time()
-      -- Shift history: 1ago → 2ago, now → 1ago
-      sn.valley_2ago = sn.valley_1ago
-      sn.valley_1ago = now
+      EnvPLL._process_valley(n, now, env_val, prev)
+   end
+end
 
-      -- Measure full cycle: 2 valley-to-valley intervals = 2r+a
-      -- (valleys alternate r, a+r — any 2 consecutive = full cycle)
-      if sn.valley_2ago then
-         local period = now - sn.valley_2ago
-         EnvPLL._correct(period)
-      end
+----------------------------------------------------------------------
+-- Feed valley: called from /harvest_valley OSC handler (SC per-valley)
+-- SC detected the valley — we just measure and correct with exact timing
+----------------------------------------------------------------------
+
+function EnvPLL.feed_valley(env_val, note)
+   if not EnvPLL.active then return end
+   if not note then return end
+
+   local now = util.time()
+   EnvPLL._sc_valley_mode = true  -- switch to precise mode (disable 30Hz valley detection)
+
+   local n = note
+   if not EnvPLL.notes[n] then
+      EnvPLL.notes[n] = {
+         prev_val    = 0,
+         valley_1ago = nil,
+         valley_2ago = nil,
+         valley_count = 0,
+      }
+   end
+   local sn = EnvPLL.notes[n]
+
+   EnvPLL._process_valley(n, now, env_val, nil)
+end
+
+----------------------------------------------------------------------
+-- Internal: process a detected valley (shared by feed() and feed_valley())
+----------------------------------------------------------------------
+
+function EnvPLL._process_valley(note, now, env_val, prev_val)
+   local sn = EnvPLL.notes[note]
+   if not sn then return end
+
+   sn.valley_count = (sn.valley_count or 0) + 1
+   EnvPLL._last_valley_time = now
+
+   -- Shift history: 1ago → 2ago, now → 1ago
+   sn.valley_2ago = sn.valley_1ago
+   sn.valley_1ago = now
+
+   -- Log every valley with full debug info
+   if env_val then
+      print(string.format("EnvPLL: valley t=%.3f note=%d env=%.4f prev=%.4f thresh=%.2f v#=%d",
+         now, note, env_val, prev_val or 0, EnvPLL.threshold, sn.valley_count))
+   else
+      print(string.format("EnvPLL: valley t=%.3f note=%d v#=%d (SC)",
+         now, note, sn.valley_count))
+   end
+
+   -- Measure full cycle: 2 valley-to-valley intervals = 2r+a
+   -- (valleys alternate r, a+r — any 2 consecutive = full cycle)
+   if sn.valley_2ago then
+      local period = now - sn.valley_2ago
+      EnvPLL._correct(period)
    end
 end
 
@@ -114,14 +185,26 @@ function EnvPLL._correct(measured_period)
    if measured_period <= 0 then return end
    local target = EnvPLL.target_period
    local error = (measured_period - target) / target
+   local now = util.time()
 
    -- Ignore spurious measurements
-   if measured_period < 0.05 then return end  -- too short = noise
-   if math.abs(error) > 0.3 then return end   -- >30% error = glitch, skip
+   if measured_period < 0.05 then
+      print(string.format("EnvPLL: skip t=%.3f period=%.3f reason=too_short", now, measured_period))
+      return
+   end
+   if math.abs(error) > 0.3 then
+      print(string.format("EnvPLL: skip t=%.3f period=%.3f target=%.3f error=%+.1f%% reason=glitch_guard",
+         now, measured_period, target, error * 100))
+      return
+   end
 
-   -- Rate-limit: max one correction per 200ms to avoid oscillation
-   local now = util.time()
-   if now - EnvPLL._last_correction < 0.2 then return end
+   -- Rate-limit: max one correction per 200ms
+   local since_last = now - EnvPLL._last_correction
+   if since_last < 0.2 then
+      print(string.format("EnvPLL: skip t=%.3f reason=rate_limit last=%.0fms ago",
+         now, since_last * 1000))
+      return
+   end
    EnvPLL._last_correction = now
 
    -- Use PLL's own corrected value (accumulates corrections)
@@ -138,13 +221,11 @@ function EnvPLL._correct(measured_period)
 
    -- Save corrected value for next cycle (accumulates)
    EnvPLL.corrected_mr = new_mr
-   -- Only send to engine — don't contaminate Harvest.max_release (raw slider)
+   -- Only send to engine — don't contaminate Harvest.max_release
    engine.harvest_poly_set("max_release", new_mr)
 
-   if math.abs(error) > 0.005 then  -- only log significant corrections (>0.5%)
-      print(string.format("EnvPLL: period=%.3fs error=%+.1f%% mr=%.3f→%.3f",
-         measured_period, error * 100, mr, new_mr))
-   end
+   print(string.format("EnvPLL: correct t=%.3f period=%.3f target=%.3f error=%+.1f%% mr=%.4f→%.4f accum=%.4f",
+      now, measured_period, target, error * 100, mr, new_mr, EnvPLL.corrected_mr))
 end
 
 return EnvPLL

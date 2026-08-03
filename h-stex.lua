@@ -1,7 +1,7 @@
 --
 --  Expanding universe 
 --  by Josue Arias
---  v4.7 - Støy EX
+--  v4.8 - Støy EX
 --      .                   
 --                         
 --          .          .     
@@ -868,6 +868,8 @@ function init()
             p.env_val = args[1] or 0
          end
          EnvPLL.feed(args[1] or 0, args[2])  -- closed-loop envelope↔clock sync
+      elseif path == '/harvest_valley' then
+         EnvPLL.feed_valley(args[1] or 0, args[2])  -- SC per-valley trigger for PLL
       end
    end
 
