@@ -1,7 +1,7 @@
 --
 --  Expanding universe 
 --  by Josue Arias
---  v4.4 - Støy EX
+--  v4.6 - Støy EX
 --      .                   
 --                         
 --          .          .     

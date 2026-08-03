@@ -35,16 +35,17 @@ function EnvPLL.enable()
       EnvPLL.target_period = 2.0  -- safe default
    end
    EnvPLL._last_correction = util.time()
+   -- Save quantized baseline (not raw slider value) for PLL corrections
+   EnvPLL._original_max_release = EnvQuant.last_mr_corrected or Harvest.max_release
    print("EnvPLL: enabled, target=" .. string.format("%.3f", EnvPLL.target_period) .. "s")
 end
 
 function EnvPLL.disable()
    if not EnvPLL.active then return end
    EnvPLL.active = false
-   -- restore original max_release
-   if Harvest and Harvest.max_release and EnvPLL._original_max_release then
+   -- restore quantized max_release
+   if EnvPLL._original_max_release then
       engine.harvest_poly_set("max_release", EnvPLL._original_max_release)
-      Harvest.max_release = EnvPLL._original_max_release
       print("EnvPLL: disabled, max_release restored to " .. string.format("%.3f", EnvPLL._original_max_release))
    end
    EnvPLL.notes = {}
@@ -115,13 +116,13 @@ function EnvPLL._correct(measured_period)
    if now - EnvPLL._last_correction < 0.2 then return end
    EnvPLL._last_correction = now
 
-   -- Save original on first correction
-   if not EnvPLL._original_max_release then
-      EnvPLL._original_max_release = Harvest.max_release
-   end
+    -- Save original on first correction (use quantized value, not raw slider)
+    if not EnvPLL._original_max_release then
+       EnvPLL._original_max_release = EnvQuant.last_mr_corrected or Harvest.max_release
+    end
 
-   local mr = Harvest.max_release
-   local new_mr = mr * (1 - EnvPLL.gain * error)
+    local mr = EnvQuant.last_mr_corrected or Harvest.max_release
+    local new_mr = mr * (1 - EnvPLL.gain * error)
 
    -- Clamp: don't let it stray more than ±30% from original
    if EnvPLL._original_max_release and EnvPLL._original_max_release > 0 then

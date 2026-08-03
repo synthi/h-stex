@@ -107,6 +107,7 @@ function EnvQuant.apply()
 
    engine.harvest_poly_set("max_attack", ma)
    engine.harvest_poly_set("max_release", mr)
+   EnvQuant.last_mr_corrected = mr  -- ground truth for PLL (quantized value, not raw slider)
    EnvQuant.last_cycle   = d_q
    EnvQuant.last_div_idx = div_idx
    -- Update PLL target (if active) so it tracks the new division
