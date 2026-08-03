@@ -1,7 +1,8 @@
 -- lib/env_pll.lua
 -- Phase-Locked Loop for envelope↔clock sync (closed-loop correction)
--- v1.3 for h-stex
+-- v1.4 for h-stex
 --
+-- v1.4: Proportional correction (always starts from last_mr_corrected, no accumulation)
 -- v1.3: AR loop (1 valley/cycle), dead zone 0.1%, jitter reduction (3-sample avg), 2-decimal telemetry
 -- v1.2: Rich telemetry, SC per-valley support, gain 0.3, no valley reset on target change
 -- v1.1: 2-valley measurement, corrected_mr accumulation, glitch guard
@@ -55,11 +56,12 @@ end
 function EnvPLL.disable()
    if not EnvPLL.active then return end
    EnvPLL.active = false
-   if EnvPLL._original_max_release then
-      engine.harvest_poly_set("max_release", EnvPLL._original_max_release)
-      print(string.format("EnvPLL: disabled t=%.3f restored mr=%.4f",
-         util.time(), EnvPLL._original_max_release))
-   end
+    local restore_mr = EnvQuant.last_mr_corrected or EnvPLL._original_max_release
+    if restore_mr then
+       engine.harvest_poly_set("max_release", restore_mr)
+       print(string.format("EnvPLL: disabled t=%.3f restored mr=%.4f",
+          util.time(), restore_mr))
+    end
    EnvPLL.notes = {}
    EnvPLL._original_max_release = nil
    EnvPLL.corrected_mr = nil
@@ -238,25 +240,26 @@ function EnvPLL._correct(measured_period)
    end
    EnvPLL._last_correction = now
 
-   -- Use PLL's own corrected value (accumulates corrections)
-   local mr = EnvPLL.corrected_mr or EnvQuant.last_mr_corrected or Harvest.max_release
-   local new_mr = mr * (1 - EnvPLL.gain * error)
+    -- Proportional correction: always start from latest quantized value (user changes respected)
+    local mr = EnvQuant.last_mr_corrected or EnvPLL.corrected_mr or Harvest.max_release
+    local new_mr = mr * (1 - EnvPLL.gain * error)
 
-   -- Clamp: don't let it stray more than ±30% from original
-   if EnvPLL._original_max_release and EnvPLL._original_max_release > 0 then
-      local lo = EnvPLL._original_max_release * 0.7
-      local hi = EnvPLL._original_max_release * 1.3
-      new_mr = util.clamp(new_mr, lo, hi)
-   end
-   new_mr = util.clamp(new_mr, 0.001, 24)
+    -- Clamp: ±30% from the quantized baseline (not a stale original)
+    local clamp_base = EnvQuant.last_mr_corrected or EnvPLL._original_max_release
+    if clamp_base and clamp_base > 0 then
+       local lo = clamp_base * 0.7
+       local hi = clamp_base * 1.3
+       new_mr = util.clamp(new_mr, lo, hi)
+    end
+    new_mr = util.clamp(new_mr, 0.001, 24)
 
-   -- Save corrected value for next cycle (accumulates)
-   EnvPLL.corrected_mr = new_mr
-   -- Only send to engine — don't contaminate Harvest.max_release
-   engine.harvest_poly_set("max_release", new_mr)
+    -- Save corrected value (for telemetry; next cycle starts from last_mr_corrected again)
+    EnvPLL.corrected_mr = new_mr
+    -- Only send to engine — don't contaminate Harvest.max_release
+    engine.harvest_poly_set("max_release", new_mr)
 
-   print(string.format("EnvPLL: correct t=%.3f avg=%.3f target=%.3f error=%+.2f%% mr=%.4f→%.4f accum=%.4f",
-      now, avg_period, target, error * 100, mr, new_mr, EnvPLL.corrected_mr))
+    print(string.format("EnvPLL: correct t=%.3f avg=%.3f target=%.3f error=%+.2f%% mr=%.4f→%.4f",
+       now, avg_period, target, error * 100, mr, new_mr))
 end
 
 return EnvPLL
